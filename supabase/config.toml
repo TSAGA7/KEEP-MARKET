@@ -1,0 +1,59 @@
+# Конфигурация Supabase CLI для KEEP MARKET
+project_id = "keep-market"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public"]
+max_rows = 200
+
+[db]
+port = 54322
+major_version = 15
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[storage]
+enabled = true
+file_size_limit = "20MiB"
+
+[auth]
+enabled = true
+# Вход только через Telegram (Edge Function auth-telegram). Регистрация по e-mail не используется.
+enable_signup = false
+
+# Все функции сами проверяют доступ: JWT (auth-telegram), подпись Telegram или провайдера.
+[functions.auth-telegram]
+verify_jwt = false
+import_map = "./functions/import_map.json"
+
+[functions.create-order]
+verify_jwt = false
+import_map = "./functions/import_map.json"
+
+[functions.order-action]
+verify_jwt = false
+import_map = "./functions/import_map.json"
+
+[functions.payment-create]
+verify_jwt = false
+import_map = "./functions/import_map.json"
+
+[functions.payment-webhook]
+verify_jwt = false
+import_map = "./functions/import_map.json"
+
+[functions.payment-refund]
+verify_jwt = false
+import_map = "./functions/import_map.json"
+
+[functions.payment-mock-simulate]
+verify_jwt = false
+import_map = "./functions/import_map.json"
+
+[functions.telegram-bot]
+verify_jwt = false
+import_map = "./functions/import_map.json"
