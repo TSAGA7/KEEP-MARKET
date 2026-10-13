@@ -4,10 +4,6 @@ import { as, createDb, createProfile, expectDbError, grantRole, one, q, type Db 
 
 let db: Db;
 let owner: string, admin: string, manager: string;
-const FULL_CHECKLIST = {
-  no_foreign_trademarks: true, packaging_checked: true, photos_checked: true,
-  design_rights_checked: true, description_checked: true, supplier_documents_checked: true,
-};
 
 beforeAll(async () => {
   db = await createDb({ seed: true });
@@ -30,58 +26,34 @@ async function newDraft(slug: string): Promise<string> {
   return p.id;
 }
 
-describe('публикация и юридическая проверка', () => {
-  it('новый товар всегда создаётся непроверенным — нельзя «самоодобрить» при создании', async () => {
-    const id = await newDraft('self-approve');
-    const p = await one<{ compliance_status: string; trademark_review_status: string }>(db,
-      'select compliance_status, trademark_review_status from public.products where id = $1', [id]);
-    expect(p).toEqual({ compliance_status: 'pending_review', trademark_review_status: 'pending_review' });
+describe('публикация', () => {
+  it('товар публикуется без юридической проверки и без описания', async () => {
+    const id = await newDraft('no-review');
+    await as(db, 'authenticated', admin, () => q(db, `update public.products set description = null where id = $1`, [id]));
+    const blockers = await as(db, 'authenticated', admin, () => one<{ b: string[] }>(db, 'select public.product_publish_blockers($1) b', [id]));
+    expect(blockers.b).toEqual([]);
+    await as(db, 'authenticated', admin, () => q(db, `update public.products set status = 'published' where id = $1`, [id]));
+    expect(await q(db, 'select id from public.catalog_products where id = $1', [id])).toHaveLength(1);
   });
 
-  it('публикация непроверенного товара блокируется', async () => {
-    const id = await newDraft('blocked-publish');
+  it('без цены и категории публикация блокируется с понятными причинами', async () => {
+    const id = await newDraft('no-price');
+    await as(db, 'authenticated', admin, () => q(db, `update public.products set price_kopecks = 0, category_id = null where id = $1`, [id]));
     await expectDbError(as(db, 'authenticated', admin, () => q(db, `update public.products set status = 'published' where id = $1`, [id])),
-      /PUBLISH_BLOCKED: .*COMPLIANCE_NOT_APPROVED/);
-    const cat = await q(db, 'select id from public.catalog_products where id = $1', [id]);
-    expect(cat).toHaveLength(0);
+      /PUBLISH_BLOCKED: .*NO_CATEGORY.*NO_PRICE/);
   });
 
-  it('юридические поля нельзя изменить обычным UPDATE', async () => {
-    const id = await newDraft('direct-compliance');
-    await expectDbError(as(db, 'authenticated', admin, () => q(db, `update public.products set compliance_status = 'approved' where id = $1`, [id])),
-      'COMPLIANCE_FIELDS_REQUIRE_REVIEW');
-  });
-
-  it('проверку проводит владелец; одобрение требует полного чек-листа; после — публикация разрешена', async () => {
-    const id = await newDraft('reviewed');
-    await expectDbError(as(db, 'authenticated', admin, () => q(db, `select public.staff_review_product($1, 'approved', 'approved', $2::jsonb, 'ok')`,
-      [id, JSON.stringify(FULL_CHECKLIST)])), 'FORBIDDEN');
-    await expectDbError(as(db, 'authenticated', owner, () => q(db, `select public.staff_review_product($1, 'approved', 'approved', '{"no_foreign_trademarks": true}'::jsonb, 'ok')`,
-      [id])), 'CHECKLIST_INCOMPLETE');
-    const r = await as(db, 'authenticated', owner, () => one<{ r: { publish_blockers: string[] } }>(db,
-      `select public.staff_review_product($1, 'approved', 'approved', $2::jsonb, 'Документы поставщика проверены') r`, [id, JSON.stringify(FULL_CHECKLIST)]));
-    expect(r.r.publish_blockers).toEqual([]);
+  it('скрытый товар пропадает с витрины', async () => {
+    const id = await newDraft('to-hide');
     await as(db, 'authenticated', admin, () => q(db, `update public.products set status = 'published' where id = $1`, [id]));
-    const cat = await q(db, 'select id from public.catalog_products where id = $1', [id]);
-    expect(cat).toHaveLength(1);
-    const reviews = await q(db, 'select reviewer_id from public.compliance_reviews where product_id = $1', [id]);
-    expect(reviews).toEqual([{ reviewer_id: owner }]);
+    await as(db, 'authenticated', admin, () => q(db, `update public.products set status = 'hidden' where id = $1`, [id]));
+    expect(await q(db, 'select id from public.catalog_products where id = $1', [id])).toHaveLength(0);
   });
 
-  it('статус needs_more_documents снимает товар с публикации', async () => {
-    const id = await newDraft('revoke');
-    await as(db, 'authenticated', owner, () => q(db, `select public.staff_review_product($1, 'approved', 'approved', $2::jsonb, null)`, [id, JSON.stringify(FULL_CHECKLIST)]));
-    await as(db, 'authenticated', admin, () => q(db, `update public.products set status = 'published' where id = $1`, [id]));
-    await as(db, 'authenticated', owner, () => q(db, `select public.staff_review_product($1, 'approved', 'needs_more_documents', '{}'::jsonb, 'нужна декларация')`, [id]));
-    const p = await one<{ status: string }>(db, 'select status from public.products where id = $1', [id]);
-    expect(p.status).toBe('hidden');
-  });
-
-  it('товар без фото/вариантов не публикуется даже после проверки', async () => {
+  it('товар без фото/вариантов не публикуется', async () => {
     const cat = await one<{ id: string }>(db, `select id from public.categories where slug = 'bags'`);
     const p = await as(db, 'authenticated', admin, () => one<{ id: string }>(db, `
       insert into public.products (slug, title, description, category_id, sku, price_kopecks) values ('empty-bag', 'Сумка', 'Описание сумки тест', $1, 'EMPTY-BAG', 1000) returning id`, [cat.id]));
-    await as(db, 'authenticated', owner, () => q(db, `select public.staff_review_product($1, 'approved', 'approved', $2::jsonb, null)`, [p.id, JSON.stringify(FULL_CHECKLIST)]));
     await expectDbError(as(db, 'authenticated', admin, () => q(db, `update public.products set status = 'published' where id = $1`, [p.id])), /NO_IMAGES.*NO_VARIANTS/);
   });
 

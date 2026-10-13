@@ -59,7 +59,6 @@ export default function DashboardPage() {
             <h2 className="mb-3 font-medium">Каталог</h2>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <Stat label="Опубликовано товаров" value={d.products_published} to="/admin/products?status=published" />
-              <Stat label="Ожидают проверки документов" value={d.products_pending_review} to="/admin/compliance" tone="warn" />
               <Stat label={`Остаток не подтверждён > ${d.stock_freshness_hours} ч`} value={d.variants_stale_stock} to="/admin/variants?stale=1" tone="warn" />
             </div>
           </section>

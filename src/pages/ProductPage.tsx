@@ -201,7 +201,6 @@ export default function ProductPage() {
           ) : null}
           <Details title="Доставка">{deliveryInfo ?? 'Способ и стоимость доставки менеджер согласует после проверки наличия.'}</Details>
           <Details title="Возврат">{returnPolicy ?? 'Условия возврата уточняйте у менеджера.'}</Details>
-          {product.origin_description ? <Details title="Происхождение товара">{product.origin_description}</Details> : null}
           <div className="flex h-14 items-center justify-between text-sm text-graphite">
             <span>Артикул</span><span className="num text-ink">{selected?.sku ?? product.sku}</span>
           </div>

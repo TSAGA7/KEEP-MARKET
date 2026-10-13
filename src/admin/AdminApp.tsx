@@ -6,7 +6,7 @@ import { tg } from '@/lib/telegram';
 import { Wordmark } from '@/components/layout';
 import { Spinner } from '@/components/ui';
 import {
-  IconBox, IconCard, IconDoc, IconGrid, IconHome, IconList, IconMenu, IconRuler, IconSettings, IconShield, IconTag,
+  IconBox, IconCard, IconDoc, IconGrid, IconHome, IconList, IconMenu, IconRuler, IconSettings, IconTag,
   IconTruck, IconUpload, IconUsers, IconImage, IconClose,
 } from '@/components/icons';
 import { TelegramRequired } from '@/pages/ProfilePage';
@@ -26,7 +26,6 @@ const ShipmentsPage = lazy(() => import('./pages/ShipmentsPage'));
 const CustomersPage = lazy(() => import('./pages/CustomersPage'));
 const PromosPage = lazy(() => import('./pages/PromosPage'));
 const BannersPage = lazy(() => import('./pages/BannersPage'));
-const CompliancePage = lazy(() => import('./pages/CompliancePage'));
 const AuditPage = lazy(() => import('./pages/AuditPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 
@@ -44,7 +43,6 @@ const NAV: Array<{ to: string; label: string; icon: (p: { size?: number }) => JS
   { to: 'customers', label: 'Покупатели', icon: IconUsers, roles: ['owner', 'admin', 'manager'] },
   { to: 'promos', label: 'Промокоды', icon: IconTag, roles: ['owner', 'admin'] },
   { to: 'banners', label: 'Баннеры и подборки', icon: IconImage, roles: ['owner', 'admin'] },
-  { to: 'compliance', label: 'Проверка ассортимента', icon: IconShield, roles: ['owner', 'admin'] },
   { to: 'audit', label: 'Журнал действий', icon: IconDoc, roles: ['owner', 'admin'] },
   { to: 'settings', label: 'Настройки', icon: IconSettings, roles: ['owner', 'admin'] },
 ];
@@ -137,7 +135,6 @@ export default function AdminApp() {
             <Route path="customers" element={<CustomersPage />} />
             <Route path="promos" element={<PromosPage />} />
             <Route path="banners" element={<BannersPage />} />
-            <Route path="compliance" element={<CompliancePage />} />
             <Route path="audit" element={<AuditPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<AdminPage title="Раздел не найден"><Link to="/admin" className="underline">На главную панели</Link></AdminPage>} />

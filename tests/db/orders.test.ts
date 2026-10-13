@@ -91,13 +91,9 @@ describe('создание заявки', () => {
     expect(it.stock_was_fresh).toBe(false);
   });
 
-  it('товар без юридической проверки нельзя заказать даже по прямому id варианта', async () => {
-    const p = await createSellableProduct(db, { slug: 'revoked', price: 1000 });
-    await db.exec(`select set_config('app.review_ctx', 'on', false)`);
-    await db.query(`update public.products set compliance_status = 'needs_more_documents' where id = $1`, [p.productId]);
-    await db.exec(`select set_config('app.review_ctx', 'off', false)`);
-    const st = await one<{ status: string }>(db, 'select status from public.products where id = $1', [p.productId]);
-    expect(st.status).toBe('hidden'); // снят с публикации автоматически
+  it('неопубликованный (черновик) товар нельзя заказать даже по прямому id варианта', async () => {
+    const p = await createSellableProduct(db, { slug: 'back-to-draft', price: 1000 });
+    await db.query(`update public.products set status = 'draft' where id = $1`, [p.productId]);
     const r = await create(orderPayload([{ variant_id: p.variantId, quantity: 1, expected_unit_price_kopecks: 1000 }]));
     expect(r.problems?.[0]?.code).toBe('UNAVAILABLE');
   });
