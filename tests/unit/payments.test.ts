@@ -84,3 +84,15 @@ describe('ЮKassa адаптер (без реальной сети)', () => {
     expect(() => decimalStringToKopecks('1e5')).toThrow();
   });
 });
+
+import { receiptWithDiscount } from '@shared/payments';
+describe('чек со скидкой', () => {
+  it('сумма позиций чека равна сумме после скидки', () => {
+    const items = [{ description: 'A', quantity: 2, amountKopecks: 1999 }, { description: 'B', quantity: 1, amountKopecks: 5001 }];
+    const out = receiptWithDiscount(items, 777);
+    const total = out.reduce((a, i) => a + i.amountKopecks * i.quantity, 0);
+    expect(total).toBe(2 * 1999 + 5001 - 777);
+    expect(out.every((i) => Number.isInteger(i.amountKopecks) && i.amountKopecks >= 0)).toBe(true);
+    expect(receiptWithDiscount(items, 0)).toEqual(items);
+  });
+});

@@ -62,10 +62,10 @@ begin
       (v_pid, 'demo:' || p.image || '-1.svg', p.title, 0),
       (v_pid, 'demo:' || p.image || '-2.svg', p.title || ' — вид сзади', 1);
 
-    for v_color in select * from (values ('Чёрный', '#111111'), ('Серый', '#8a8a8a')) c(name, hex) loop
+    for v_color in select * from (values ('Чёрный', '#111111', 'BLK'), ('Серый', '#8a8a8a', 'GRY')) c(name, hex, code) loop
       foreach v_size in array p.sizes loop
         insert into public.product_variants (product_id, sku, size, color, color_hex, stock_qty, stock_confirmed_at, sort_order)
-        values (v_pid, p.sku || '-' || coalesce(v_size, 'OS') || '-' || left(v_color.hex, 4), v_size, v_color.name, v_color.hex,
+        values (v_pid, p.sku || '-' || v_color.code || '-' || coalesce(v_size, 'OS'), v_size, v_color.name, v_color.hex,
                 case when v_size = 'XL' then 0 else 3 end,
                 case when p.slug = 'demo-leather-boots' then now() - interval '7 days' else now() end, 0);
       end loop;

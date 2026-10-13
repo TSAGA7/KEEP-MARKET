@@ -86,6 +86,25 @@ export interface PaymentProvider {
   createRefund(p: RefundParams): Promise<RefundResult>;
 }
 
+/** Распределяет скидку по позициям чека пропорционально сумме (в копейках, без потерь).
+ *  Позиция с количеством > 1 и дробной ценой за единицу после скидки выводится одной строкой (quantity = 1)
+ *  с указанием количества в описании — проверьте такой формат с вашей онлайн-кассой. */
+export function receiptWithDiscount(items: ReceiptItem[], discountKopecks: number): ReceiptItem[] {
+  const lines = items.map((i) => ({ ...i, total: i.amountKopecks * i.quantity }));
+  const sum = lines.reduce((a, l) => a + l.total, 0);
+  if (discountKopecks <= 0 || sum === 0) return items;
+  const d = Math.min(discountKopecks, sum);
+  let left = d;
+  const out = lines.map((l, idx) => {
+    const share = idx === lines.length - 1 ? left : Math.floor((d * l.total) / sum);
+    left -= share;
+    const total = l.total - share;
+    if (total % l.quantity === 0) return { description: l.description, quantity: l.quantity, amountKopecks: total / l.quantity };
+    return { description: `${l.description} (${l.quantity} шт.)`.slice(0, 128), quantity: 1, amountKopecks: total };
+  });
+  return out;
+}
+
 export function kopecksToDecimalString(k: number): string {
   if (!Number.isSafeInteger(k) || k < 0) throw new Error('Invalid amount');
   return `${Math.floor(k / 100)}.${String(k % 100).padStart(2, '0')}`;

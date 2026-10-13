@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 600" width="480" height="600">
+  <rect width="480" height="600" fill="#d6d4cd"/>
+  <path d="M60 120 h160 v220 h-160z M260 200 h160 v260 h-160z" fill="#b9b7af"/>
+  <text x="24" y="40" font-family="system-ui, sans-serif" font-size="16" fill="#9b9a95">ДЕМО</text>
+</svg>

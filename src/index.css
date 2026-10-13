@@ -1,0 +1,87 @@
+@import '@fontsource/golos-text/cyrillic-400.css';
+@import '@fontsource/golos-text/cyrillic-500.css';
+@import '@fontsource/golos-text/cyrillic-600.css';
+@import '@fontsource/golos-text/latin-400.css';
+@import '@fontsource/golos-text/latin-500.css';
+@import '@fontsource/golos-text/latin-600.css';
+@import '@fontsource/unbounded/cyrillic-500.css';
+@import '@fontsource/unbounded/cyrillic-700.css';
+@import '@fontsource/unbounded/latin-500.css';
+@import '@fontsource/unbounded/latin-700.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --c-paper: 255 255 255;
+  --c-concrete: 236 235 231;
+  --c-ink: 0 0 0;
+  --c-graphite: 94 93 89;
+  --c-fog: 169 168 163;
+  --c-line: 222 221 216;
+  --c-moss: 95 107 69;
+  --c-rust: 156 62 45;
+  --c-amber: 138 101 30;
+  /* Безопасные зоны: максимум из iOS env() и значений, которые передаёт Telegram */
+  --safe-top: max(env(safe-area-inset-top, 0px), calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px)));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px));
+  --nav-h: 58px;
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --c-paper: 0 0 0;
+  --c-concrete: 26 26 25;
+  --c-ink: 245 244 240;
+  --c-graphite: 176 175 170;
+  --c-fog: 112 111 107;
+  --c-line: 44 44 42;
+  --c-moss: 154 170 118;
+  --c-rust: 226 128 106;
+  --c-amber: 214 170 88;
+  color-scheme: dark;
+}
+
+html, body, #root { min-height: 100%; }
+body {
+  @apply bg-paper text-ink font-sans text-base antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+  font-feature-settings: 'tnum' 0;
+}
+
+/* Видимый фокус для клавиатуры (Telegram Desktop) */
+:focus-visible { outline: 2px solid rgb(var(--c-moss)); outline-offset: 2px; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+
+.num { font-variant-numeric: tabular-nums; }
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* Бирка с ценой — фирменная деталь KEEP MARKET */
+.hang-tag {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px 7px 26px;
+  background: rgb(var(--c-ink));
+  color: rgb(var(--c-paper));
+  clip-path: polygon(12px 0, 100% 0, 100% 100%, 12px 100%, 0 50%);
+}
+.hang-tag::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 999px;
+  background: rgb(var(--c-paper));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }
+}

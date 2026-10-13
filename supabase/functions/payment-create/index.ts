@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { serve, json, readJson, HttpError, fromDbError } from '../_shared/http.ts';
 import { requireUser, rateLimit, adminClient } from '../_shared/supabase.ts';
 import { getProvider } from '../_shared/payments.ts';
-import { appUrl } from '../_shared/telegram.ts';
+import { receiptWithDiscount } from '../_shared/domain/payments.ts';
+import { miniAppLink } from '../_shared/telegram.ts';
 
 const bodySchema = z.object({ order_id: z.string().uuid() });
 
@@ -46,11 +47,12 @@ serve('payment-create', async (req) => {
       amountKopecks: p.amount_kopecks,
       orderNumber: p.order_number,
       description: `Заказ ${p.order_number} в KEEP MARKET`,
-      returnUrl: appUrl(`orders/${parsed.data.order_id}?payment=return`) ?? 'https://t.me',
+      // Возврат в Mini App (внутри Telegram сохраняется вход). Возврат НЕ считается подтверждением оплаты.
+      returnUrl: miniAppLink(`o_${parsed.data.order_id}`, `orders/${parsed.data.order_id}?payment=return`) ?? 'https://t.me',
       customerEmail: contact?.email ?? null,
       customerPhone: contact?.phone ?? null,
-      // Чек со скидкой формирует провайдер только при отсутствии скидки; иначе — настраивается отдельно (см. docs/payments.md)
-      receiptItems: Number(order?.discount_kopecks ?? 0) === 0 ? receiptItems : undefined,
+      // Скидка распределяется по позициям чека, чтобы сумма чека совпала с суммой платежа
+      receiptItems: receiptWithDiscount(receiptItems, Number(order?.discount_kopecks ?? 0)),
       deliveryKopecks: order?.delivery_kopecks ?? null,
     });
     await db.rpc('payment_attach_provider', {

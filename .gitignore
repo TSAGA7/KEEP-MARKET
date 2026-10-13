@@ -9,3 +9,4 @@ coverage
 supabase/.temp
 supabase/.branches
 supabase/functions/.env
+e2e-shots
