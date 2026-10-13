@@ -43,8 +43,10 @@ jobs:
         env:
           # Публичные значения задаются в Settings → Secrets and variables → Actions → Variables.
           # Секреты (service role, токен бота) сюда НЕ передаются.
-          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          # Публичные значения проекта (anon key безопасен для браузера, доступ ограничивает RLS).
+          # Можно переопределить через Variables с теми же именами.
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL || 'https://sxxonmdivzayvzmyhjzy.supabase.co' }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4eG9ubWRpdnpheXZ6bXloanp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5MTMzODIsImV4cCI6MjEwNzQ4OTM4Mn0.9qN6nTTlt1vx0b-R3LlHz2t46ajJT-rs0RDAOuYK9dI' }}
           VITE_BASE_PATH: ${{ vars.VITE_BASE_PATH || format('/{0}/', github.event.repository.name) }}
           VITE_ENABLE_MOCK_PAYMENT: 'false'
         run: |
