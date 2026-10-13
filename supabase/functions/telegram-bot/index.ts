@@ -7,6 +7,7 @@ import { adminClient, getSetting } from '../_shared/supabase.ts';
 import { sendMessage, tgCall, appUrl, miniAppLink, notifyManagers, statusLabel } from '../_shared/telegram.ts';
 import { escapeTelegramHtml as esc, timingSafeEqual } from '../_shared/domain/telegram.ts';
 import { requireEnv } from '../_shared/env.ts';
+import { hasImportableImage, importFromMessage, isCatalogEditor, type ImportMessage } from '../_shared/import.ts';
 
 type TgUser = { id: number; is_bot?: boolean; first_name?: string; last_name?: string; username?: string; language_code?: string };
 type TgMessage = {
@@ -61,6 +62,19 @@ async function handlePrivate(m: TgMessage) {
     }
     await sendMessage(m.chat.id, 'Добро пожаловать в KEEP MARKET — одежда, обувь, сумки и аксессуары независимых брендов.\n\nОткройте магазин кнопкой ниже. Здесь же будут приходить уведомления о ваших заказах.', shopButton());
     return;
+  }
+
+  // Пост поставщика с фото, пересланный владельцем/администратором → черновик товара
+  if (hasImportableImage(m as unknown as ImportMessage) && (await isCatalogEditor(u.id))) {
+    await importFromMessage(m as unknown as ImportMessage);
+    return;
+  }
+
+  if (text === '/import' || text === '/help_import') {
+    if (await isCatalogEditor(u.id)) {
+      await sendMessage(m.chat.id, 'Импорт товаров: перешлите сюда пост поставщика с фото (альбомом). Бот создаст черновик: название и описание из текста поста (без контактов поставщика), цену, размеры и фото. Фон на фото удаляется автоматически. Затем проверьте карточку и опубликуйте.');
+      return;
+    }
   }
 
   if (text === '/shop') {

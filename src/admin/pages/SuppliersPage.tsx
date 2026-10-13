@@ -17,6 +17,15 @@ export const SUPPLIER_CHECKLIST: Array<[string, string]> = [
   ['returns_terms_agreed', 'Согласованы условия возврата и брака'],
 ];
 
+/** «@channel», «https://t.me/channel» или «-100123…» → поля поставщика */
+export function parseTelegramChannel(v: string): { telegram_username: string | null; telegram_chat_id: number | null } {
+  const t = v.trim();
+  if (!t) return { telegram_username: null, telegram_chat_id: null };
+  if (/^-?\d{5,20}$/.test(t)) return { telegram_username: null, telegram_chat_id: Number(t) };
+  const u = t.replace(/^https?:\/\/t\.me\//i, '').replace(/^@/, '').split(/[/?]/)[0] ?? '';
+  return { telegram_username: /^[A-Za-z0-9_]{4,64}$/.test(u) ? u : null, telegram_chat_id: null };
+}
+
 interface Offer { id: string; supplier_sku: string; title: string | null; purchase_price_kopecks: number | null; stock_qty: number; confirmed_at: string | null; variant_id: string | null; product_id: string | null; manager_comment: string | null }
 
 export default function SuppliersPage() {
@@ -26,12 +35,18 @@ export default function SuppliersPage() {
   const q = useQuery({ queryKey: ['admin', 'suppliers'], queryFn: async () => check(await db().from('suppliers').select('*').order('name')) as Supplier[] });
   const [edit, setEdit] = useState<Partial<Supplier> | null>(null);
   const [offersFor, setOffersFor] = useState<Supplier | null>(null);
+  const [tgChannel, setTgChannel] = useState('');
+  const openEdit = (sup: Partial<Supplier>) => {
+    setEdit(sup);
+    setTgChannel(sup.telegram_username ? `@${sup.telegram_username}` : sup.telegram_chat_id ? String(sup.telegram_chat_id) : '');
+  };
 
   const save = async () => {
     if (!edit?.name || !edit.internal_code) { toast('Укажите название и код', 'error'); return; }
     const row = {
       name: edit.name.trim(), internal_code: edit.internal_code.trim().toUpperCase(), contacts: edit.contacts ?? {}, notes: edit.notes ?? null, terms: edit.terms ?? null,
       processing_days_min: edit.processing_days_min ?? null, processing_days_max: edit.processing_days_max ?? null, is_active: edit.is_active ?? true, checklist: edit.checklist ?? {},
+      ...parseTelegramChannel(tgChannel),
     };
     try {
       if (edit.id) check(await db().from('suppliers').update(row).eq('id', edit.id));
@@ -43,7 +58,7 @@ export default function SuppliersPage() {
   };
 
   return (
-    <AdminPage title="Поставщики" actions={s.isAdmin ? <Button size="sm" onClick={() => setEdit({ is_active: true, contacts: {}, checklist: {} })}>Добавить поставщика</Button> : null}>
+    <AdminPage title="Поставщики" actions={s.isAdmin ? <Button size="sm" onClick={() => openEdit({ is_active: true, contacts: {}, checklist: {} })}>Добавить поставщика</Button> : null}>
       <p className="mb-4 max-w-2xl text-sm text-graphite">Поставщик не получает доступа к базе: менеджер передаёт ему только подтверждённый заказ с минимально необходимыми данными.</p>
       {q.isError ? <ErrorState onRetry={() => void q.refetch()} /> : null}
       {q.isLoading ? <Skeleton className="h-40" /> : null}
@@ -58,7 +73,7 @@ export default function SuppliersPage() {
                 <Td><Badge tone={done === SUPPLIER_CHECKLIST.length ? 'good' : 'warn'}>{done}/{SUPPLIER_CHECKLIST.length}</Badge></Td>
                 <Td>{sup.is_active ? 'активен' : 'неактивен'}</Td>
                 <Td className="whitespace-nowrap">
-                  {s.isAdmin ? <Button size="sm" variant="ghost" onClick={() => setEdit(sup)}>Изменить</Button> : null}
+                  {s.isAdmin ? <Button size="sm" variant="ghost" onClick={() => openEdit(sup)}>Изменить</Button> : null}
                   {s.isAdmin ? <Button size="sm" variant="ghost" onClick={() => setOffersFor(sup)}>Предложения</Button> : null}
                 </Td>
               </tr>
@@ -76,6 +91,9 @@ export default function SuppliersPage() {
               <Field label="Контактное лицо" optional>{(id) => <Input id={id} value={edit.contacts?.contact ?? ''} onChange={(e) => setEdit({ ...edit, contacts: { ...edit.contacts, contact: e.target.value } })} />}</Field>
               <Field label="Телефон / Telegram" optional>{(id) => <Input id={id} value={edit.contacts?.phone ?? ''} onChange={(e) => setEdit({ ...edit, contacts: { ...edit.contacts, phone: e.target.value } })} />}</Field>
             </div>
+            <Field label="Telegram-канал поставщика" optional hint="@username или ID канала. По нему бот узнаёт поставщика, когда вы пересылаете пост">
+              {(id) => <Input id={id} placeholder="@supplier_channel" value={tgChannel} onChange={(e) => setTgChannel(e.target.value)} />}
+            </Field>
             <Field label="E-mail" optional>{(id) => <Input id={id} value={edit.contacts?.email ?? ''} onChange={(e) => setEdit({ ...edit, contacts: { ...edit.contacts, email: e.target.value } })} />}</Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Обработка от, дней" optional>{(id) => <Input id={id} inputMode="numeric" value={edit.processing_days_min?.toString() ?? ''} onChange={(e) => setEdit({ ...edit, processing_days_min: e.target.value ? Number(e.target.value) : null })} />}</Field>

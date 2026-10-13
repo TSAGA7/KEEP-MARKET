@@ -31,7 +31,7 @@ async function main() {
   await backend.db.query(`insert into public.profiles (telegram_id, username, first_name) values ($1, 'owner', 'Владелец')`, [OWNER_TG]);
   await backend.db.query(`select public.bootstrap_owner($1)`, [OWNER_TG]);
 
-  const server = spawn('npx', ['vite', 'preview', '--port', '4173', '--strictPort'], { stdio: 'pipe', env: { ...process.env, VITE_BASE_PATH: '/KEEP-MARKET/' } });
+  const server = spawn('npx', ['vite', 'preview', '--port', '4173', '--strictPort'], { stdio: 'pipe', detached: true, env: { ...process.env, VITE_BASE_PATH: '/KEEP-MARKET/' } });
   await new Promise((res, rej) => {
     const t = setTimeout(() => rej(new Error('preview timeout')), 30000);
     server.stdout.on('data', (d) => { if (String(d).replace(/\x1b\[[0-9;]*m/g, '').includes('4173')) { clearTimeout(t); res(); } });
@@ -200,8 +200,8 @@ async function main() {
       process.exitCode = 1;
     }
     await browser.close();
-    server.kill();
+    try { process.kill(-server.pid, 'SIGTERM'); } catch { server.kill(); }
   }
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().then(() => process.exit(process.exitCode ?? 0), (e) => { console.error(e); process.exit(1); });

@@ -27,9 +27,14 @@ export interface AdminVariant {
   is_active: boolean; sort_order: number;
 }
 
-export interface AdminImage { id: string; product_id: string; storage_path: string | null; url: string | null; alt: string | null; sort_order: number }
+export interface AdminImage {
+  id: string; product_id: string; storage_path: string | null; url: string | null; alt: string | null; sort_order: number;
+  original_storage_path: string | null; processed_storage_path: string | null;
+  processing_status: 'none' | 'pending' | 'processing' | 'done' | 'failed' | 'skipped'; processing_error: string | null;
+}
 export interface Supplier { id: string; internal_code: string; name: string; contacts: Record<string, string>; notes: string | null; terms: string | null;
-  processing_days_min: number | null; processing_days_max: number | null; is_active: boolean; checklist: Record<string, boolean>; created_at: string }
+  processing_days_min: number | null; processing_days_max: number | null; is_active: boolean; checklist: Record<string, boolean>; created_at: string;
+  telegram_chat_id: number | null; telegram_username: string | null }
 
 export const PRODUCT_STATUS_LABEL: Record<AdminProduct['status'], string> = {
   draft: 'Черновик', pending_review: 'На проверке', published: 'Опубликован', hidden: 'Скрыт', archived: 'В архиве',

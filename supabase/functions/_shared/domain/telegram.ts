@@ -97,6 +97,7 @@ export type StartTarget =
   | { type: 'product'; slug: string }
   | { type: 'order'; id: string }
   | { type: 'admin_order'; id: string }
+  | { type: 'admin_product'; id: string }
   | { type: 'catalog'; category: string };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -109,6 +110,7 @@ export function parseStartParam(sp: string | null | undefined): StartTarget | nu
   if (sp.startsWith('p_') && body) return { type: 'product', slug: body.replace(/_/g, '-').toLowerCase() };
   if (sp.startsWith('o_') && UUID_RE.test(body)) return { type: 'order', id: body };
   if (sp.startsWith('a_') && UUID_RE.test(body)) return { type: 'admin_order', id: body };
+  if (sp.startsWith('e_') && UUID_RE.test(body)) return { type: 'admin_product', id: body };
   if (sp.startsWith('c_') && /^[a-z0-9-]+$/.test(body)) return { type: 'catalog', category: body };
   return null;
 }
@@ -120,6 +122,7 @@ export function startTargetPath(t: StartTarget | null): string | null {
     case 'product': return `/product/${t.slug}`;
     case 'order': return `/orders/${t.id}`;
     case 'admin_order': return `/admin/orders/${t.id}`;
+    case 'admin_product': return `/admin/products/${t.id}`;
     case 'catalog': return `/catalog?category=${t.category}`;
   }
 }

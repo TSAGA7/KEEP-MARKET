@@ -1,0 +1,6 @@
+# Удаление фона у фото товаров (scripts/process_photos.py). Версии проверены на Python 3.13.
+rembg[cpu]==2.0.85
+onnxruntime==1.29.0
+opencv-python-headless==5.0.0.93
+pillow==12.3.0
+numpy==2.5.3

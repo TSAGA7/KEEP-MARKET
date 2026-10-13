@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { db, imageUrl } from '@/lib/supabase';
 import { useSession } from '@/lib/session';
-import { BLOCKER_LABEL, PRODUCT_STATUS_LABEL, REVIEW_STATUS_LABEL, check, errText, getAdminProduct, rpc, uploadProductImage, type AdminProduct, type AdminVariant } from '../api';
+import { BLOCKER_LABEL, PRODUCT_STATUS_LABEL, REVIEW_STATUS_LABEL, check, errText, getAdminProduct, rpc, uploadProductImage, type AdminImage, type AdminProduct, type AdminVariant } from '../api';
 import { AdminPage, KV, Section, Table, Td } from '../ui';
 import { Badge, Button, ErrorState, Field, Input, Notice, Price, Select, Sheet, Skeleton, Textarea } from '@/components/ui';
 import { IconArrowDown, IconArrowUp, IconTrash, IconEye } from '@/components/icons';
@@ -33,7 +33,11 @@ export default function ProductEditPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
-  const q = useQuery({ queryKey: ['admin', 'product', id], queryFn: () => getAdminProduct(id), enabled: !isNew });
+  const q = useQuery({
+    queryKey: ['admin', 'product', id], queryFn: () => getAdminProduct(id), enabled: !isNew,
+    // Пока фото в очереди на удаление фона — обновляем карточку раз в 20 секунд
+    refetchInterval: (query) => (query.state.data?.images.some((i) => i.processing_status === 'pending' || i.processing_status === 'processing') ? 20_000 : false),
+  });
   const cats = useQuery({ queryKey: ['admin', 'categories'], queryFn: async () => check(await db().from('categories').select('id, name, parent_id').order('sort_order')) as Array<{ id: string; name: string; parent_id: string | null }> });
   const sups = useQuery({ queryKey: ['admin', 'suppliers-min'], queryFn: async () => check(await db().from('suppliers').select('id, name').order('name')) as Array<{ id: string; name: string }> });
   const blockers = useQuery({ queryKey: ['admin', 'blockers', id], queryFn: () => rpc<string[]>('product_publish_blockers', { p_product_id: id }), enabled: !isNew });
@@ -76,7 +80,7 @@ export default function ProductEditPage() {
     if (f.cost.trim() && cost === null) { toast('Некорректная закупочная цена', 'error'); return; }
     const row = {
       title: f.title.trim(), slug: f.slug.trim(), description: f.description.trim() || null, category_id: f.category_id || null,
-      brand_name: f.brand_name.trim() || null, sku: f.sku.trim(), price_kopecks: price, materials: f.materials.trim() || null, care: f.care.trim() || null,
+      brand_name: f.brand_name.trim() || null, ...(f.sku.trim() ? { sku: f.sku.trim() } : {}), price_kopecks: price, materials: f.materials.trim() || null, care: f.care.trim() || null,
       origin_description: f.origin_description.trim() || null, weight_grams: intOrNull(f.weight_grams), length_mm: intOrNull(f.length_mm),
       width_mm: intOrNull(f.width_mm), height_mm: intOrNull(f.height_mm), supplier_id: f.supplier_id || null,
       supplier_documents_reference: f.supplier_documents_reference.trim() || null, internal_notes: f.internal_notes.trim() || null, is_featured: f.is_featured,
@@ -162,7 +166,9 @@ export default function ProductEditPage() {
             <Field label="Slug (адрес страницы)" hint="Латиница, цифры и дефисы" error={errors.slug?.message}>
               {(fid) => <Input id={fid} {...register('slug', { required: 'Укажите slug', pattern: { value: /^[a-z0-9]+(-[a-z0-9]+)*$/, message: 'Только a-z, 0-9 и дефисы' } })} />}
             </Field>
-            <Field label="Артикул" error={errors.sku?.message}>{(fid) => <Input id={fid} {...register('sku', { required: 'Укажите артикул', maxLength: 64 })} />}</Field>
+            <Field label="Артикул" optional hint={isNew ? 'Оставьте пустым — магазин присвоит сам, например KM-000123' : undefined} error={errors.sku?.message}>
+              {(fid) => <Input id={fid} placeholder={isNew ? 'Сгенерируется автоматически' : undefined} {...register('sku', { maxLength: 64 })} />}
+            </Field>
             <Field label="Бренд" optional hint="Только собственный или независимый бренд поставщика. Не используйте чужие товарные знаки">
               {(fid) => <Input id={fid} {...register('brand_name')} />}
             </Field>
@@ -211,7 +217,7 @@ export default function ProductEditPage() {
       {!isNew && p ? (
         <>
           <ImagesSection productId={p.id} images={q.data!.images} canEdit={canEdit} onChange={refresh} />
-          <VariantsSection productId={p.id} sku={p.sku} variants={q.data!.variants} canEdit={canEdit} onChange={refresh} />
+          <VariantsSection productId={p.id} variants={q.data!.variants} canEdit={canEdit} onChange={refresh} />
           {q.data!.offers.length ? (
             <Section title="Предложения поставщиков">
               <Table head={['Поставщик', 'Артикул поставщика', 'Остаток', 'Подтверждено']}>
@@ -228,9 +234,19 @@ export default function ProductEditPage() {
   );
 }
 
-function ImagesSection({ productId, images, canEdit, onChange }: { productId: string; images: Array<{ id: string; storage_path: string | null; url: string | null; alt: string | null; sort_order: number }>; canEdit: boolean; onChange: () => Promise<void> }) {
+const PROCESSING_LABEL: Record<AdminImage['processing_status'], string> = {
+  none: '',
+  pending: 'В очереди на удаление фона',
+  processing: 'Удаляем фон…',
+  done: 'Фон удалён',
+  failed: 'Не удалось обработать',
+  skipped: 'Фон оставлен: коллаж или крупный план',
+};
+
+function ImagesSection({ productId, images, canEdit, onChange }: { productId: string; images: AdminImage[]; canEdit: boolean; onChange: () => Promise<void> }) {
   const toast = useToast();
   const [uploading, setUploading] = useState(false);
+  const [removeBg, setRemoveBg] = useState(true);
   const onFiles = async (files: FileList | null) => {
     if (!files?.length) return;
     setUploading(true);
@@ -238,9 +254,12 @@ function ImagesSection({ productId, images, canEdit, onChange }: { productId: st
       let order = images.length ? Math.max(...images.map((i) => i.sort_order)) + 1 : 0;
       for (const f of Array.from(files).slice(0, 10)) {
         const path = await uploadProductImage(productId, f);
-        check(await db().from('product_images').insert({ product_id: productId, storage_path: path, sort_order: order++ }));
+        check(await db().from('product_images').insert({
+          product_id: productId, storage_path: path, original_storage_path: path, sort_order: order++,
+          processing_status: removeBg ? 'pending' : 'none',
+        }));
       }
-      toast('Фото загружены', 'success');
+      toast(removeBg ? 'Фото загружены, фон удалится автоматически в течение ~15 минут' : 'Фото загружены', 'success');
       await onChange();
     } catch (e) {
       toast(errText(e), 'error');
@@ -261,46 +280,78 @@ function ImagesSection({ productId, images, canEdit, onChange }: { productId: st
       await onChange();
     } catch (e) { toast(errText(e), 'error'); }
   };
-  const remove = async (img: { id: string; storage_path: string | null }) => {
+  const remove = async (img: AdminImage) => {
     if (!window.confirm('Удалить фото?')) return;
     try {
       check(await db().from('product_images').delete().eq('id', img.id));
-      if (img.storage_path) await db().storage.from('product-images').remove([img.storage_path]);
+      const paths = [...new Set([img.storage_path, img.original_storage_path, img.processed_storage_path].filter(Boolean))] as string[];
+      if (paths.length) await db().storage.from('product-images').remove(paths);
+      await onChange();
+    } catch (e) { toast(errText(e), 'error'); }
+  };
+  const switchVersion = async (img: AdminImage, version: 'original' | 'processed' | 'reprocess') => {
+    try {
+      await rpc('staff_image_use_version', { p_image_id: img.id, p_version: version });
+      if (version === 'reprocess') toast('Фото отправлено на повторную обработку', 'success');
       await onChange();
     } catch (e) { toast(errText(e), 'error'); }
   };
   return (
     <Section title="Фотографии" actions={canEdit ? (
-      <label className="inline-flex h-9 cursor-pointer items-center bg-ink px-3 text-sm text-paper">
-        {uploading ? 'Загрузка…' : 'Загрузить фото'}
-        <input type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" disabled={uploading} onChange={(e) => { void onFiles(e.target.files); e.target.value = ''; }} />
-      </label>
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={removeBg} onChange={(e) => setRemoveBg(e.target.checked)} className="h-4 w-4" /> Убрать фон</label>
+        <label className="inline-flex h-9 cursor-pointer items-center bg-ink px-3 text-sm text-paper">
+          {uploading ? 'Загрузка…' : 'Загрузить фото'}
+          <input type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" disabled={uploading} onChange={(e) => { void onFiles(e.target.files); e.target.value = ''; }} />
+        </label>
+      </div>
     ) : null}>
       {images.length === 0 ? <p className="text-sm text-graphite">Фото нет. JPEG, PNG или WebP до 5 МБ; первое фото — обложка.</p> : null}
-      <div className="grid grid-cols-3 gap-3 md:grid-cols-6">
-        {images.map((img, idx) => (
-          <div key={img.id} className="space-y-1">
-            <div className="aspect-[4/5] bg-concrete">
-              {imageUrl(img.url ?? (img.storage_path ? `storage:${img.storage_path}` : null)) ? (
-                <img src={imageUrl(img.url ?? `storage:${img.storage_path}`)!} alt={img.alt ?? ''} className="h-full w-full object-cover" />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+        {images.map((img, idx) => {
+          const showingProcessed = !!img.processed_storage_path && img.storage_path === img.processed_storage_path;
+          const busy = img.processing_status === 'pending' || img.processing_status === 'processing';
+          const src = imageUrl(img.url ?? (img.storage_path ? `storage:${img.storage_path}` : null));
+          return (
+            <div key={img.id} className="space-y-1">
+              <div className="relative aspect-[4/5] bg-concrete">
+                {src ? <img src={src} alt={img.alt ?? ''} className="h-full w-full object-cover" /> : null}
+                {busy ? <div className="absolute inset-x-0 bottom-0 bg-ink/75 px-2 py-1 text-xs text-paper">{PROCESSING_LABEL[img.processing_status]}</div> : null}
+              </div>
+              {idx === 0 ? <p className="text-xs font-medium">Обложка</p> : null}
+              {!busy && img.processing_status !== 'none' ? (
+                <p className={img.processing_status === 'failed' ? 'text-xs text-rust' : 'text-xs text-graphite'}>{PROCESSING_LABEL[img.processing_status]}</p>
+              ) : null}
+              {canEdit ? (
+                <>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                    {img.processed_storage_path && img.original_storage_path ? (
+                      <button className="underline underline-offset-2" onClick={() => switchVersion(img, showingProcessed ? 'original' : 'processed')}>
+                        {showingProcessed ? 'Показать оригинал' : 'Показать без фона'}
+                      </button>
+                    ) : null}
+                    {img.original_storage_path && !busy ? (
+                      <button className="underline underline-offset-2" onClick={() => switchVersion(img, 'reprocess')}>
+                        {img.processing_status === 'none' ? 'Убрать фон' : 'Обработать заново'}
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="flex justify-between text-graphite">
+                    <button aria-label="Раньше" disabled={idx === 0} onClick={() => move(idx, -1)} className="p-1 disabled:opacity-30"><IconArrowUp size={18} /></button>
+                    <button aria-label="Позже" disabled={idx === images.length - 1} onClick={() => move(idx, 1)} className="p-1 disabled:opacity-30"><IconArrowDown size={18} /></button>
+                    <button aria-label="Удалить" onClick={() => remove(img)} className="p-1 text-rust"><IconTrash size={18} /></button>
+                  </div>
+                </>
               ) : null}
             </div>
-            {canEdit ? (
-              <div className="flex justify-between text-graphite">
-                <button aria-label="Раньше" disabled={idx === 0} onClick={() => move(idx, -1)} className="p-1 disabled:opacity-30"><IconArrowUp size={18} /></button>
-                <button aria-label="Позже" disabled={idx === images.length - 1} onClick={() => move(idx, 1)} className="p-1 disabled:opacity-30"><IconArrowDown size={18} /></button>
-                <button aria-label="Удалить" onClick={() => remove(img)} className="p-1 text-rust"><IconTrash size={18} /></button>
-              </div>
-            ) : null}
-            {idx === 0 ? <p className="text-xs text-graphite">Обложка</p> : null}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </Section>
   );
 }
 
-function VariantsSection({ productId, sku, variants, canEdit, onChange }: { productId: string; sku: string; variants: AdminVariant[]; canEdit: boolean; onChange: () => Promise<void> }) {
+function VariantsSection({ productId, variants, canEdit, onChange }: { productId: string; variants: AdminVariant[]; canEdit: boolean; onChange: () => Promise<void> }) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [sizes, setSizes] = useState('');
@@ -314,7 +365,8 @@ function VariantsSection({ productId, sku, variants, canEdit, onChange }: { prod
     try {
       const rows = combos.map((c, i) => ({
         product_id: productId, size: c.size, color: c.color, stock_qty: Math.max(0, Number(stock) || 0), stock_confirmed_at: new Date().toISOString(),
-        sku: `${sku}-${slugifySku(c.color)}-${slugifySku(c.size)}`.replace(/-+$/, '').replace(/--+/g, '-').slice(0, 64), sort_order: variants.length + i,
+        sort_order: variants.length + i, // артикул варианта присваивает база
+
       }));
       check(await db().from('product_variants').insert(rows));
       toast(`Добавлено вариантов: ${rows.length}`, 'success');
@@ -361,10 +413,6 @@ function VariantsSection({ productId, sku, variants, canEdit, onChange }: { prod
   );
 }
 
-function slugifySku(s: string | null): string {
-  if (!s) return '';
-  return slugify(s).toUpperCase().slice(0, 12);
-}
 
 function PreviewSheet({ open, onClose, product, variants, image }: { open: boolean; onClose: () => void; product: AdminProduct; variants: AdminVariant[]; image: { url: string | null; storage_path: string | null } | null }) {
   const src = image ? imageUrl(image.url ?? `storage:${image.storage_path}`) : null;
