@@ -65,6 +65,13 @@ export async function listProducts(p: { q?: string; status?: string; review?: st
   return check(await query) as Array<Pick<AdminProduct, 'id' | 'slug' | 'title' | 'sku' | 'price_kopecks' | 'status' | 'compliance_status' | 'trademark_review_status' | 'is_demo' | 'category_id' | 'updated_at'>>;
 }
 
+/** Удаление товара из архива навсегда: сервер удаляет запись (проверяет роль и статус «В архиве»),
+ *  затем убираем файлы фото из хранилища. */
+export async function deleteArchivedProduct(id: string) {
+  const paths = await rpc<string[]>('admin_delete_archived_product', { p_product_id: id });
+  if (paths?.length) await db().storage.from('product-images').remove(paths);
+}
+
 export async function getAdminProduct(id: string) {
   const [p, v, i, c, offers] = await Promise.all([
     db().from('products').select('*').eq('id', id).maybeSingle(),

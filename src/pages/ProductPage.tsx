@@ -1,45 +1,16 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import clsx from 'clsx';
 import { getProduct, getPublicSettings, similarProducts } from '@/lib/api';
 import { useCart } from '@/lib/cart';
 import { useFavorites } from '@/lib/favorites';
 import { useSession } from '@/lib/session';
 import { haptic } from '@/lib/telegram';
 import type { CatalogVariant } from '@/lib/types';
-import { ProductImage, ProductRail, StockLine, sortSizes } from '@/components/product';
+import { Gallery, ProductRail, StockLine, sortSizes } from '@/components/product';
 import { Button, Chip, DemoBadge, EmptyState, ErrorState, Price, SectionTitle, Skeleton, Stepper } from '@/components/ui';
 import { IconChevronDown, IconHeart } from '@/components/icons';
 import { useToast } from '@/components/toast';
-
-function Gallery({ images, title }: { images: Array<{ id: string; image_ref: string; alt: string | null }>; title: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [active, setActive] = useState(0);
-  const onScroll = () => {
-    const el = ref.current;
-    if (el) setActive(Math.round(el.scrollLeft / el.clientWidth));
-  };
-  if (!images.length) return <ProductImage src={null} alt={title} className="aspect-[4/5] w-full" />;
-  return (
-    <div className="relative">
-      <div ref={ref} onScroll={onScroll} className="no-scrollbar flex snap-x snap-mandatory overflow-x-auto" aria-label="Фотографии товара">
-        {images.map((img, i) => (
-          <ProductImage key={img.id} src={img.image_ref} alt={img.alt ?? `${title}, фото ${i + 1}`} eager={i === 0} className="aspect-[4/5] w-full shrink-0 snap-center" />
-        ))}
-      </div>
-      {images.length > 1 ? (
-        <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
-          {images.map((img, i) => (
-            <button key={img.id} aria-label={`Фото ${i + 1}`} aria-current={i === active}
-              onClick={() => ref.current?.scrollTo({ left: i * ref.current.clientWidth, behavior: 'smooth' })}
-              className={clsx('h-1.5 transition-all', i === active ? 'w-5 bg-ink' : 'w-1.5 bg-ink/35')} />
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 function Details({ title, children, defaultOpen }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
   return (

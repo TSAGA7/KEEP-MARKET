@@ -10,6 +10,7 @@ import { Badge, Button, ErrorState, Field, Input, Notice, Price, Select, Sheet, 
 import { IconArrowDown, IconArrowUp, IconTrash, IconEye } from '@/components/icons';
 import { useToast } from '@/components/toast';
 import { formatDateTime } from '@/components/order';
+import { Gallery } from '@/components/product';
 import { parseRublesToKopecks, kopecksToRublesInput } from '@shared/money';
 import { humanizeError } from '@shared/orders';
 
@@ -216,7 +217,7 @@ export default function ProductEditPage() {
               </Table>
             </Section>
           ) : null}
-          <PreviewSheet open={preview} onClose={() => setPreview(false)} product={p} variants={q.data!.variants} image={q.data!.images[0] ?? null} />
+          <PreviewSheet open={preview} onClose={() => setPreview(false)} product={p} variants={q.data!.variants} images={q.data!.images} />
         </>
       ) : null}
     </AdminPage>
@@ -403,12 +404,14 @@ function VariantsSection({ productId, variants, canEdit, onChange }: { productId
 }
 
 
-function PreviewSheet({ open, onClose, product, variants, image }: { open: boolean; onClose: () => void; product: AdminProduct; variants: AdminVariant[]; image: { url: string | null; storage_path: string | null } | null }) {
-  const src = image ? imageUrl(image.url ?? `storage:${image.storage_path}`) : null;
+function PreviewSheet({ open, onClose, product, variants, images }: { open: boolean; onClose: () => void; product: AdminProduct; variants: AdminVariant[]; images: AdminImage[] }) {
+  const gallery = images
+    .filter((i) => i.url || i.storage_path)
+    .map((i) => ({ id: i.id, image_ref: i.url ?? `storage:${i.storage_path}`, alt: i.alt }));
   const sizes = [...new Set(variants.filter((v) => v.is_active && v.size).map((v) => v.size))];
   return (
     <Sheet open={open} onClose={onClose} title="Так увидит покупатель">
-      <div className="bg-concrete">{src ? <img src={src} alt="" className="aspect-[4/5] w-full object-cover" /> : <div className="aspect-[4/5]" />}</div>
+      <Gallery images={gallery} title={product.title} />
       {product.brand_name ? <p className="mt-3 text-sm text-graphite">{product.brand_name}</p> : null}
       <p className="mt-1 font-display text-lg">{product.title}</p>
       <span className="hang-tag mt-3 text-md font-semibold"><Price kopecks={product.price_kopecks} /></span>

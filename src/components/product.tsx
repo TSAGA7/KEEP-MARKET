@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import clsx from 'clsx';
 import { imageUrl } from '@/lib/supabase';
@@ -109,3 +110,33 @@ export function sortSizes(sizes: string[]): string[] {
   return [...sizes].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
 
+/** Листаемая галерея фото (свайп + точки). Используется на странице товара и в предпросмотре админки. */
+export function Gallery({ images, title }: { images: Array<{ id: string; image_ref: string; alt: string | null }>; title: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState(0);
+  const key = images.map((i) => i.id).join(',');
+  useEffect(() => { setActive(0); ref.current?.scrollTo({ left: 0 }); }, [key]);
+  const onScroll = () => {
+    const el = ref.current;
+    if (el) setActive(Math.round(el.scrollLeft / el.clientWidth));
+  };
+  if (!images.length) return <ProductImage src={null} alt={title} className="aspect-[4/5] w-full" />;
+  return (
+    <div className="relative">
+      <div ref={ref} onScroll={onScroll} className="no-scrollbar flex snap-x snap-mandatory overflow-x-auto" aria-label="Фотографии товара">
+        {images.map((img, i) => (
+          <ProductImage key={img.id} src={img.image_ref} alt={img.alt ?? `${title}, фото ${i + 1}`} eager={i === 0} className="aspect-[4/5] w-full shrink-0 snap-center" />
+        ))}
+      </div>
+      {images.length > 1 ? (
+        <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
+          {images.map((img, i) => (
+            <button key={img.id} aria-label={`Фото ${i + 1}`} aria-current={i === active}
+              onClick={() => ref.current?.scrollTo({ left: i * ref.current.clientWidth, behavior: 'smooth' })}
+              className={clsx('h-1.5 transition-all', i === active ? 'w-5 bg-ink' : 'w-1.5 bg-ink/35')} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
