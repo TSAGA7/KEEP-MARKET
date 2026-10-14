@@ -1,100 +1,81 @@
+// «Бухгалтерия» — деньги магазина. Доступна только владельцу (сервер отдаёт суммы только ему).
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { countProductsByStatus, rpc } from '../api';
+import { rpc } from '../api';
 import { AdminPage } from '../ui';
 import { useSession } from '@/lib/session';
-import { Button, ErrorState, Notice, Price, Skeleton } from '@/components/ui';
+import { ErrorState, Notice, Price, Skeleton } from '@/components/ui';
 
-interface Dash {
+export interface Dash {
   orders_new: number; orders_checking: number; orders_awaiting_payment: number; orders_awaiting_shipment: number;
   orders_shipped: number; orders_issue: number; open_requests_amount_kopecks: number; products_published: number;
   paid_amount_kopecks?: number; refunded_amount_kopecks?: number; paid_orders_cost_kopecks?: number; paid_orders_items_kopecks?: number;
   paid_orders_logistics_kopecks?: number; paid_orders_without_cost?: number;
 }
 
-function Stat({ label, value, to, tone }: { label: string; value: number | string; to?: string; tone?: 'warn' | 'bad' }) {
+export function Stat({ label, value, to, tone }: { label: string; value: number | string; to?: string; tone?: 'warn' | 'bad' | 'good' }) {
   const body = (
     <div className="flex h-full flex-col justify-between gap-3 border border-line p-4">
       <span className="text-sm text-graphite">{label}</span>
-      <span className={`num font-display text-2xl ${tone === 'bad' && Number(value) > 0 ? 'text-rust' : tone === 'warn' && Number(value) > 0 ? 'text-amber' : ''}`}>{value}</span>
+      <span className={`num font-display text-2xl ${tone === 'bad' && (typeof value === 'string' || Number(value) > 0) ? 'text-rust' : tone === 'warn' && Number(value) > 0 ? 'text-amber' : tone === 'good' ? 'text-moss' : ''}`}>{value}</span>
     </div>
   );
   return to ? <Link to={to} className="block hover:bg-concrete">{body}</Link> : body;
 }
 
-export default function DashboardPage() {
+function fmt(k: number) {
+  return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(k / 100)) + ' ₽';
+}
+
+export default function AccountingPage() {
   const s = useSession();
-  const q = useQuery({ queryKey: ['admin', 'dashboard'], queryFn: () => rpc<Dash>('staff_dashboard'), refetchInterval: 60_000 });
-  const counts = useQuery({ queryKey: ['admin', 'dashboard', 'product-counts'], queryFn: () => countProductsByStatus(['draft', 'archived']), refetchInterval: 60_000 });
+  const q = useQuery({ queryKey: ['admin', 'dashboard'], queryFn: () => rpc<Dash>('staff_dashboard'), refetchInterval: 60_000, enabled: s.isOwner });
   const d = q.data;
 
+  if (!s.isOwner) {
+    return <AdminPage title="Бухгалтерия"><Notice>Раздел доступен только владельцу магазина.</Notice></AdminPage>;
+  }
+
+  const items = d?.paid_orders_items_kopecks ?? 0;
+  const cost = d?.paid_orders_cost_kopecks ?? 0;
+  const logistics = d?.paid_orders_logistics_kopecks ?? 0;
+  const result = items - cost - logistics;
+
   return (
-    <AdminPage title="Обзор" actions={
-      <>
-        {s.isAdmin ? <Link to="/admin/products/new"><Button size="sm">Добавить товар</Button></Link> : null}
-        {s.isAdmin ? <Link to="/admin/pricing"><Button size="sm" variant="secondary">Импортировать прайс</Button></Link> : null}
-      </>
-    }>
+    <AdminPage title="Бухгалтерия">
       {q.isError ? <ErrorState onRetry={() => void q.refetch()} /> : null}
-      {q.isLoading ? <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-24" />)}</div> : null}
+      {q.isLoading ? <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24" />)}</div> : null}
       {d ? (
         <div className="space-y-8">
           <section>
-            <h2 className="mb-3 font-medium">Заявки и заказы</h2>
+            <h2 className="mb-1 font-medium">Поступления</h2>
+            <p className="mb-3 text-sm text-graphite">Только реально полученные деньги: онлайн-платежи и оплаты, зафиксированные вручную.</p>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <Stat label="Новые заявки" value={d.orders_new} to="/admin/orders?status=new" tone="warn" />
-              <Stat label="Проверка наличия" value={d.orders_checking} to="/admin/orders?status=checking_availability" tone="warn" />
-              <Stat label="Ожидают оплату" value={d.orders_awaiting_payment} to="/admin/orders?status=awaiting_payment" />
-              <Stat label="Ожидают отправку" value={d.orders_awaiting_shipment} to="/admin/orders?status=awaiting_shipment" />
-              <Stat label="Отправлены" value={d.orders_shipped} to="/admin/orders?status=shipped" />
-              <Stat label="С проблемами" value={d.orders_issue} to="/admin/orders?status=issue" tone="bad" />
+              <Stat label="Поступило оплат" value={fmt(d.paid_amount_kopecks ?? 0)} to="/admin/payments" />
+              <Stat label="Возвращено покупателям" value={fmt(d.refunded_amount_kopecks ?? 0)} />
             </div>
-            <p className="mt-3 text-sm text-graphite">
-              Сумма открытых заявок по ценам на момент оформления: <Price kopecks={d.open_requests_amount_kopecks} />. Это не выручка: оплата и наличие ещё не подтверждены.
-            </p>
           </section>
 
           <section>
-            <h2 className="mb-3 font-medium">Каталог</h2>
+            <h2 className="mb-1 font-medium">Оплаченные заказы</h2>
+            <p className="mb-3 text-sm text-graphite">Отменённые не учитываются.</p>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <Stat label="Опубликовано товаров" value={d.products_published} to="/admin/products?status=published" />
-              <Stat label="Черновики" value={counts.data?.draft ?? '—'} to="/admin/products?status=draft" />
-              <Stat label="В архиве" value={counts.data?.archived ?? '—'} to="/admin/products?status=archived" />
+              <Stat label="Товары по цене продажи" value={fmt(items)} />
+              <Stat label="Закупка" value={fmt(cost)} />
+              <Stat label="Расходы на доставку (курьер)" value={fmt(logistics)} />
+              <Stat label="Итог: продажи − закупка − доставка" value={fmt(result)} tone={result < 0 ? 'bad' : 'good'} />
             </div>
+            {d.paid_orders_without_cost ? (
+              <Notice tone="warn" className="mt-3">У {d.paid_orders_without_cost} оплаченных заказов не указана закупочная цена части товаров — итог завышен. Закупочная цена задаётся в карточке товара.</Notice>
+            ) : null}
           </section>
 
-          {d.paid_amount_kopecks !== undefined ? (
-            <section>
-              <h2 className="mb-1 font-medium">Деньги по подтверждённым данным</h2>
-              <p className="mb-3 text-sm text-graphite">Учитываются только платежи, подтверждённые провайдером или зафиксированные вручную владельцем/администратором.</p>
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <Stat label="Поступило оплат" value={fmt(d.paid_amount_kopecks)} to="/admin/payments" />
-                <Stat label="Возвращено" value={fmt(d.refunded_amount_kopecks ?? 0)} />
-                <Stat label="Закупочная стоимость оплаченных заказов" value={fmt(d.paid_orders_cost_kopecks ?? 0)} />
-                <Stat label="Расходы на доставку (курьер)" value={fmt(d.paid_orders_logistics_kopecks ?? 0)} />
-                <Stat label="Товары минус закупка и доставка" value={fmt((d.paid_orders_items_kopecks ?? 0) - (d.paid_orders_cost_kopecks ?? 0) - (d.paid_orders_logistics_kopecks ?? 0))} />
-              </div>
-              {d.paid_orders_without_cost ? (
-                <Notice tone="warn" className="mt-3">У {d.paid_orders_without_cost} оплаченных заказов нет закупочной цены по части позиций — разница с закупкой занижена или неполна.</Notice>
-              ) : null}
-            </section>
-          ) : null}
-
           <section>
-            <h2 className="mb-3 font-medium">Быстрые действия</h2>
-            <div className="flex flex-wrap gap-2">
-              <Link to="/admin/orders?status=new"><Button size="sm" variant="secondary">Новые заявки</Button></Link>
-              <Link to="/admin/orders?status=awaiting_payment"><Button size="sm" variant="secondary">Ожидают оплату</Button></Link>
-              <Link to="/admin/orders?status=awaiting_shipment"><Button size="sm" variant="secondary">Ожидают отправку</Button></Link>
-              <Link to="/admin/products"><Button size="sm" variant="secondary">Управление каталогом</Button></Link>
-            </div>
+            <h2 className="mb-1 font-medium">Ещё не оплачено</h2>
+            <p className="text-sm text-graphite">Открытые заявки на сумму <Price kopecks={d.open_requests_amount_kopecks} /> — это ещё не деньги: оплата не получена.</p>
           </section>
         </div>
       ) : null}
     </AdminPage>
   );
-}
-
-function fmt(k: number) {
-  return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(k / 100)) + ' ₽';
 }

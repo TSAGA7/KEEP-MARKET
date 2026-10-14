@@ -109,7 +109,7 @@ export default function OrderPage() {
 
           <Section title="Состав заявки">
             <OrderItemsList items={items} />
-            {hasCosts ? (
+            {hasCosts && s.isOwner ? (
               <p className="mt-2 text-sm text-graphite">Закупка по снимку на момент заявки: <Price kopecks={costTotal} />, разница с ценой товаров: <Price kopecks={order.items_total_kopecks - order.discount_kopecks - costTotal} /></p>
             ) : null}
             <dl className="mt-3 max-w-sm">
@@ -118,7 +118,7 @@ export default function OrderPage() {
               <KV k="Доставка">{order.delivery_kopecks === null ? 'не согласована' : <Price kopecks={order.delivery_kopecks} />}</KV>
               <KV k="Итого"><b><Price kopecks={order.total_kopecks} /></b></KV>
             </dl>
-            {s.isAdmin ? <LogisticsCost order={order} current={q.data.logisticsCost} busy={busy} act={act} costTotal={hasCosts ? costTotal : null} /> : null}
+            {s.isOwner ? <LogisticsCost order={order} current={q.data.logisticsCost} busy={busy} act={act} costTotal={hasCosts ? costTotal : null} /> : null}
           </Section>
 
           {['awaiting_payment', 'awaiting_shipment'].includes(order.status) ? (
@@ -193,7 +193,7 @@ export default function OrderPage() {
       </div>
 
       <ActionDialogs dialog={dialog} close={() => setDialog(null)} busy={busy} act={act} order={order} items={items} payments={payments}
-        onRefunded={refresh} isAdmin={s.isAdmin} />
+        onRefunded={refresh} isAdmin={s.isAdmin} isOwner={s.isOwner} />
     </AdminPage>
   );
 }
@@ -234,9 +234,9 @@ function SupplierHandoff({ order, items }: { order: Order; items: OrderItem[] })
   );
 }
 
-function ActionDialogs({ dialog, close, busy, act, order, items, payments, onRefunded, isAdmin }: {
+function ActionDialogs({ dialog, close, busy, act, order, items, payments, onRefunded, isAdmin, isOwner }: {
   dialog: StaffAction | 'refund' | 'offline' | null; close: () => void; busy: boolean; act: (a: StaffAction, p?: Record<string, unknown>) => Promise<void>;
-  order: Order; items: OrderItem[]; payments: Payment[]; onRefunded: () => Promise<void>; isAdmin: boolean;
+  order: Order; items: OrderItem[]; payments: Payment[]; onRefunded: () => Promise<void>; isAdmin: boolean; isOwner: boolean;
 }) {
   const toast = useToast();
   const [reason, setReason] = useState('');
@@ -328,7 +328,7 @@ function ActionDialogs({ dialog, close, busy, act, order, items, payments, onRef
               </Select>
             ) : null}
             <Input placeholder={dialog === 'ship' ? 'Трек-номер — необязательно' : 'Трек-номер'} value={tracking} onChange={(e) => setTracking(e.target.value)} />
-            {dialog === 'ship' && isAdmin ? (
+            {dialog === 'ship' && isOwner ? (
               <Field label="Наши расходы на доставку (курьер), ₽" optional hint="Покупатель не видит. Учитывается в панели управления">
                 {(fid) => <Input id={fid} inputMode="decimal" placeholder="Например, 300" value={shipCost} onChange={(e) => setShipCost(e.target.value)} />}
               </Field>

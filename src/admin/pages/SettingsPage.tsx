@@ -1,9 +1,10 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { db } from '@/lib/supabase';
 import { useSession } from '@/lib/session';
 import { check, errText, rpc } from '../api';
-import { AdminPage, Section, Table, Td } from '../ui';
+import { AdminPage, Section } from '../ui';
 import { Badge, Button, ErrorState, Input, Notice, Select, Skeleton, Textarea } from '@/components/ui';
 import { useToast } from '@/components/toast';
 import { humanizeError } from '@shared/orders';
@@ -49,37 +50,15 @@ function SettingRow({ s, canEdit, onSaved }: { s: Setting; canEdit: boolean; onS
   );
 }
 
-interface StaffRow { user_id: string; role: string; granted_at: string; profiles: { username: string | null; first_name: string | null; telegram_id: number } | null }
 
 export default function SettingsPage() {
   const s = useSession();
   const qc = useQueryClient();
   const toast = useToast();
   const settings = useQuery({ queryKey: ['admin', 'settings'], queryFn: async () => check(await db().from('store_settings').select('*').order('key')) as Setting[] });
-  const staff = useQuery({ queryKey: ['admin', 'staff'], queryFn: async () => check(await db().from('user_roles').select('user_id, role, granted_at, profiles!user_roles_user_id_fkey(username, first_name, telegram_id)').order('granted_at')) as unknown as StaffRow[] });
-  const [tgUser, setTgUser] = useState('');
-  const [role, setRole] = useState<'manager' | 'admin'>('manager');
   const [purging, setPurging] = useState(false);
   const refresh = async () => { await qc.invalidateQueries({ queryKey: ['admin', 'settings'] }); await qc.invalidateQueries({ queryKey: ['settings'] }); };
 
-  const grant = async () => {
-    const t = tgUser.trim().replace(/^@/, '');
-    if (!t) return;
-    try {
-      const filter = /^\d+$/.test(t) ? db().from('profiles').select('id').eq('telegram_id', Number(t)) : db().from('profiles').select('id').ilike('username', t);
-      const p = check(await filter.maybeSingle()) as { id: string } | null;
-      if (!p) { toast('Пользователь не найден: он должен хотя бы раз открыть магазин в Telegram', 'error'); return; }
-      await rpc('staff_set_role', { p_user_id: p.id, p_role: role, p_grant: true });
-      toast('Роль назначена', 'success');
-      setTgUser('');
-      await qc.invalidateQueries({ queryKey: ['admin', 'staff'] });
-    } catch (e) { toast(humanizeError(errText(e)), 'error'); }
-  };
-  const revoke = async (r: StaffRow) => {
-    if (!window.confirm('Снять роль?')) return;
-    try { await rpc('staff_set_role', { p_user_id: r.user_id, p_role: r.role, p_grant: false }); await qc.invalidateQueries({ queryKey: ['admin', 'staff'] }); }
-    catch (e) { toast(humanizeError(errText(e)), 'error'); }
-  };
   const purge = async () => {
     if (!window.confirm('Обезличить контактные данные закрытых заказов старше срока хранения? Действие необратимо.')) return;
     setPurging(true);
@@ -89,29 +68,7 @@ export default function SettingsPage() {
 
   return (
     <AdminPage title="Настройки магазина">
-      <Section title="Сотрудники">
-        <p className="mb-3 max-w-2xl text-sm text-graphite">Владелец назначает администраторов и менеджеров, администратор — менеджеров. Роль владельца через интерфейс не передаётся. Сотрудник должен один раз открыть магазин в Telegram.</p>
-        {staff.isError ? <ErrorState onRetry={() => void staff.refetch()} /> : null}
-        {staff.data ? (
-          <Table head={['Сотрудник', 'Telegram ID', 'Роль', 'С', '']} className="mb-4">
-            {staff.data.map((r) => (
-              <tr key={`${r.user_id}-${r.role}`}>
-                <Td>{r.profiles?.username ? `@${r.profiles.username}` : r.profiles?.first_name ?? '—'}</Td><Td className="num">{r.profiles?.telegram_id}</Td>
-                <Td>{r.role === 'owner' ? 'Владелец' : r.role === 'admin' ? 'Администратор' : 'Менеджер'}</Td>
-                <Td>{new Date(r.granted_at).toLocaleDateString('ru-RU')}</Td>
-                <Td>{r.role !== 'owner' && r.user_id !== s.profile?.id && (s.isOwner || r.role === 'manager') ? <Button size="sm" variant="ghost" onClick={() => revoke(r)}>Снять роль</Button> : null}</Td>
-              </tr>
-            ))}
-          </Table>
-        ) : <Skeleton className="h-16" />}
-        <div className="flex max-w-xl flex-wrap gap-2">
-          <Input className="flex-1" placeholder="@username или Telegram ID" value={tgUser} onChange={(e) => setTgUser(e.target.value)} />
-          <Select className="w-44" value={role} onChange={(e) => setRole(e.target.value as 'manager' | 'admin')}>
-            <option value="manager">Менеджер</option>{s.isOwner ? <option value="admin">Администратор</option> : null}
-          </Select>
-          <Button onClick={grant}>Назначить</Button>
-        </div>
-      </Section>
+      <Notice className="mb-6">Сотрудники и их права — в разделе <Link to="/admin/staff" className="underline underline-offset-2">Сотрудники</Link>.</Notice>
 
       <Section title="Параметры">
         {!s.isOwner ? <Notice className="mb-3">Критичные настройки (платежи, безопасность, хранение данных) меняет только владелец.</Notice> : null}

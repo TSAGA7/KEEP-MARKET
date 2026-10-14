@@ -14,7 +14,7 @@ interface Cat { id: string; parent_id: string | null; name: string; slug: string
 type Sections = { in_stock: boolean; new: boolean; popular: boolean; collections: boolean };
 
 const SECTION_LABEL: Record<keyof Sections, string> = {
-  in_stock: 'Сейчас в наличии — случайные товары из наличия',
+  in_stock: 'Подборка вверху — случайные товары из наличия (листается, вместо демо-баннера)',
   new: 'Новые поступления',
   popular: 'Популярное',
   collections: 'Подборка (первая из «Баннеры и подборки»)',
@@ -131,7 +131,7 @@ export default function HomeSettingsPage() {
       </Section>
 
       <Section title="Баннер вверху">
-        <p className="text-sm text-graphite">Картинки и тексты баннеров (сейчас там «Демо — Новый сезон») меняются в разделе <Link to="/admin/banners" className="underline underline-offset-2">Баннеры и подборки</Link>. Если выключить все баннеры, блок исчезнет.</p>
+        <p className="text-sm text-graphite">Вверху главной — подборка случайных товаров из наличия. Если добавить свои баннеры (не демо), они встанут первыми слайдами. Баннеры меняются в разделе <Link to="/admin/banners" className="underline underline-offset-2">Баннеры и подборки</Link>.</p>
       </Section>
     </AdminPage>
   );

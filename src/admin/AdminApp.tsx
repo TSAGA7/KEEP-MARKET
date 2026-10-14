@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { useSession } from '@/lib/session';
 import { tg } from '@/lib/telegram';
@@ -10,7 +10,6 @@ import {
   IconTruck, IconUpload, IconUsers, IconImage, IconClose,
 } from '@/components/icons';
 import { TelegramRequired } from '@/pages/ProfilePage';
-import DashboardPage from './pages/DashboardPage';
 import { AdminPage } from './ui';
 
 const ProductsPage = lazy(() => import('./pages/ProductsPage'));
@@ -28,23 +27,27 @@ const PromosPage = lazy(() => import('./pages/PromosPage'));
 const BannersPage = lazy(() => import('./pages/BannersPage'));
 const AuditPage = lazy(() => import('./pages/AuditPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const AccountingPage = lazy(() => import('./pages/DashboardPage'));
+const StaffPage = lazy(() => import('./pages/StaffPage'));
 const HomeSettingsPage = lazy(() => import('./pages/HomeSettingsPage'));
 
 type Role = 'owner' | 'admin' | 'manager';
+// Менеджеры видят только заказы. Финансы (бухгалтерия, платежи) — только владелец.
 const NAV: Array<{ to: string; label: string; icon: (p: { size?: number }) => JSX.Element; roles: Role[] }> = [
-  { to: '', label: 'Обзор', icon: IconHome, roles: ['owner', 'admin', 'manager'] },
   { to: 'orders', label: 'Заказы', icon: IconBox, roles: ['owner', 'admin', 'manager'] },
-  { to: 'products', label: 'Товары', icon: IconGrid, roles: ['owner', 'admin', 'manager'] },
+  { to: 'accounting', label: 'Бухгалтерия', icon: IconCard, roles: ['owner'] },
+  { to: 'payments', label: 'Платежи', icon: IconCard, roles: ['owner'] },
+  { to: 'products', label: 'Товары', icon: IconGrid, roles: ['owner', 'admin'] },
   { to: 'home', label: 'Главная страница', icon: IconHome, roles: ['owner', 'admin'] },
   { to: 'categories', label: 'Категории', icon: IconList, roles: ['owner', 'admin'] },
-  { to: 'variants', label: 'Размеры и остатки', icon: IconRuler, roles: ['owner', 'admin', 'manager'] },
+  { to: 'variants', label: 'Размеры и остатки', icon: IconRuler, roles: ['owner', 'admin'] },
   { to: 'pricing', label: 'Прайсы', icon: IconUpload, roles: ['owner', 'admin'] },
-  { to: 'suppliers', label: 'Поставщики', icon: IconUsers, roles: ['owner', 'admin', 'manager'] },
-  { to: 'payments', label: 'Платежи', icon: IconCard, roles: ['owner', 'admin'] },
-  { to: 'shipments', label: 'Отправления', icon: IconTruck, roles: ['owner', 'admin', 'manager'] },
-  { to: 'customers', label: 'Покупатели', icon: IconUsers, roles: ['owner', 'admin', 'manager'] },
+  { to: 'suppliers', label: 'Поставщики', icon: IconUsers, roles: ['owner', 'admin'] },
+  { to: 'shipments', label: 'Отправления', icon: IconTruck, roles: ['owner', 'admin'] },
+  { to: 'customers', label: 'Покупатели', icon: IconUsers, roles: ['owner', 'admin'] },
   { to: 'promos', label: 'Промокоды', icon: IconTag, roles: ['owner', 'admin'] },
   { to: 'banners', label: 'Баннеры и подборки', icon: IconImage, roles: ['owner', 'admin'] },
+  { to: 'staff', label: 'Сотрудники', icon: IconUsers, roles: ['owner', 'admin'] },
   { to: 'audit', label: 'Журнал действий', icon: IconDoc, roles: ['owner', 'admin'] },
   { to: 'settings', label: 'Настройки', icon: IconSettings, roles: ['owner', 'admin'] },
 ];
@@ -80,12 +83,16 @@ export default function AdminApp() {
 
   const nav = NAV.filter((n) => n.roles.some((r) => s.roles.includes(r)));
   const roleLabel = s.isOwner ? 'Владелец' : s.isAdmin ? 'Администратор' : 'Менеджер';
+  // Раздел, недоступный роли (например, менеджер открыл ссылку на товары) — показываем «нет доступа»
+  const section = location.pathname.split('/')[2] ?? '';
+  const sectionItem = NAV.find((n) => n.to === section);
+  const forbidden = !!sectionItem && !sectionItem.roles.some((r) => s.roles.includes(r));
 
   const navList = (
     <ul className="flex flex-col gap-0.5">
       {nav.map(({ to, label, icon: Icon }) => (
         <li key={to}>
-          <NavLink to={to ? `/admin/${to}` : '/admin'} end={!to}
+          <NavLink to={`/admin/${to}`}
             className={({ isActive }) => clsx('flex h-10 items-center gap-3 px-3 text-sm', isActive ? 'bg-ink text-paper' : 'text-graphite hover:bg-concrete hover:text-ink')}>
             <Icon size={19} />{label}
           </NavLink>
@@ -122,8 +129,13 @@ export default function AdminApp() {
 
       <main className="min-w-0 flex-1">
         <Suspense fallback={<div className="flex justify-center p-10"><Spinner /></div>}>
+          {forbidden ? (
+            <AdminPage title="Нет доступа"><p className="text-graphite">Этот раздел недоступен для вашей роли.</p><Link to="/admin/orders" className="mt-3 inline-block underline">К заказам</Link></AdminPage>
+          ) : (
           <Routes>
-            <Route index element={<DashboardPage />} />
+            <Route index element={<Navigate to="/admin/orders" replace />} />
+            <Route path="accounting" element={<AccountingPage />} />
+            <Route path="staff" element={<StaffPage />} />
             <Route path="orders" element={<OrdersPage />} />
             <Route path="orders/:id" element={<OrderPage />} />
             <Route path="products" element={<ProductsPage />} />
@@ -140,8 +152,9 @@ export default function AdminApp() {
             <Route path="banners" element={<BannersPage />} />
             <Route path="audit" element={<AuditPage />} />
             <Route path="settings" element={<SettingsPage />} />
-            <Route path="*" element={<AdminPage title="Раздел не найден"><Link to="/admin" className="underline">На главную панели</Link></AdminPage>} />
+            <Route path="*" element={<AdminPage title="Раздел не найден"><Link to="/admin/orders" className="underline">К заказам</Link></AdminPage>} />
           </Routes>
+          )}
         </Suspense>
       </main>
     </div>

@@ -1,7 +1,8 @@
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { db } from '@/lib/supabase';
-import { check } from '../api';
+import { check, rpc } from '../api';
+import { Stat, type Dash } from './DashboardPage';
 import { AdminPage, Table, Td } from '../ui';
 import { Chip, EmptyState, ErrorState, Input, Price, Skeleton } from '@/components/ui';
 import { OrderStatusBadge, PaymentBadge, formatDateTime } from '@/components/order';
@@ -26,10 +27,22 @@ export default function OrdersPage() {
     },
     refetchInterval: 30_000,
   });
+  const dash = useQuery({ queryKey: ['admin', 'dashboard'], queryFn: () => rpc<Dash>('staff_dashboard'), refetchInterval: 30_000 });
+  const d = dash.data;
   const set = (k: string, v: string) => { const n = new URLSearchParams(sp); if (v) n.set(k, v); else n.delete(k); setSp(n, { replace: true }); };
 
   return (
     <AdminPage title="Заказы">
+      {d ? (
+        <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3">
+          <Stat label="Новые заявки" value={d.orders_new} to="/admin/orders?status=new" tone="warn" />
+          <Stat label="Проверка наличия" value={d.orders_checking} to="/admin/orders?status=checking_availability" tone="warn" />
+          <Stat label="Ожидают оплату" value={d.orders_awaiting_payment} to="/admin/orders?status=awaiting_payment" />
+          <Stat label="Ожидают отправку" value={d.orders_awaiting_shipment} to="/admin/orders?status=awaiting_shipment" />
+          <Stat label="Отправлены" value={d.orders_shipped} to="/admin/orders?status=shipped" />
+          <Stat label="С проблемами" value={d.orders_issue} to="/admin/orders?status=issue" tone="bad" />
+        </div>
+      ) : null}
       <div className="mb-4 flex flex-col gap-3">
         <Input placeholder="Номер заявки, например KM-261013" value={term} onChange={(e) => set('q', e.target.value)} className="max-w-sm" />
         <div className="no-scrollbar flex gap-2 overflow-x-auto">

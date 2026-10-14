@@ -1,14 +1,14 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getBanners, getCategories, getCollections, getPublicSettings, popularProducts, searchCatalog } from '@/lib/api';
 import { imageUrl } from '@/lib/supabase';
 import { openTelegramLink } from '@/lib/telegram';
 import { useSession } from '@/lib/session';
-import type { Banner } from '@/lib/types';
+import type { Banner, CatalogProduct } from '@/lib/types';
 import { Wordmark } from '@/components/layout';
 import { ProductGrid, ProductRail } from '@/components/product';
-import { DemoBadge, ErrorState, SectionTitle, Skeleton } from '@/components/ui';
+import { DemoBadge, DiscountBadge, ErrorState, SalePrice, SectionTitle, Skeleton } from '@/components/ui';
 import { IconChevronRight, IconEdit, IconSearch, IconSend } from '@/components/icons';
 
 function bannerHref(b: Banner): string | null {
@@ -65,6 +65,78 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
+/** Верхний блок главной: листаемая подборка случайных товаров из наличия (и настоящие баннеры, если они есть) */
+function Showcase({ products, banners }: { products: CatalogProduct[]; banners: Banner[] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [i, setI] = useState(0);
+  const touched = useRef(false);
+  const count = banners.length + products.length;
+
+  useEffect(() => {
+    // Автопрокрутка каждые 5 с, пока человек сам не начал листать
+    if (count < 2) return;
+    const t = window.setInterval(() => {
+      const el = ref.current;
+      if (!el || touched.current) return;
+      const next = (Math.round(el.scrollLeft / el.clientWidth) + 1) % count;
+      el.scrollTo({ left: next * el.clientWidth, behavior: 'smooth' });
+    }, 5000);
+    return () => window.clearInterval(t);
+  }, [count]);
+
+  if (!count) return null;
+  const go = (idx: number) => { const el = ref.current; if (el) el.scrollTo({ left: idx * el.clientWidth, behavior: 'smooth' }); };
+
+  return (
+    <section aria-label="Подборка" className="relative">
+      <div ref={ref} className="no-scrollbar flex snap-x snap-mandatory overflow-x-auto"
+        onScroll={(e) => { const el = e.currentTarget; setI(Math.round(el.scrollLeft / el.clientWidth)); }}
+        onTouchStart={() => { touched.current = true; }} onPointerDown={() => { touched.current = true; }}>
+        {banners.map((b) => {
+          const href = bannerHref(b);
+          const img = imageUrl(b.image_ref);
+          const body = (
+            <div className="relative aspect-square w-full overflow-hidden bg-concrete">
+              {img ? <img src={img} alt="" className="h-full w-full object-cover" /> : null}
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 pb-5 pt-24 text-white">
+                <p className="font-display text-2xl font-bold leading-[1.05]">{b.title}</p>
+                {b.subtitle ? <p className="mt-2 max-w-[30ch] text-sm text-white/85">{b.subtitle}</p> : null}
+              </div>
+            </div>
+          );
+          return <div key={b.id} className="w-full shrink-0 snap-center">{href ? <Link to={href} className="block">{body}</Link> : body}</div>;
+        })}
+        {products.map((p, idx) => {
+          const img = imageUrl(p.cover_ref);
+          return (
+            <Link key={p.id} to={`/product/${p.slug}`} className="block w-full shrink-0 snap-center">
+              <div className="relative aspect-square w-full overflow-hidden bg-concrete">
+                {img ? <img src={img} alt={p.title} loading={idx === 0 ? 'eager' : 'lazy'} className="h-full w-full object-cover" /> : null}
+                {p.discount_percent > 0 ? <div className="absolute left-4 top-4"><DiscountBadge percent={p.discount_percent} /></div> : null}
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/30 to-transparent px-4 pb-5 pt-28 text-white">
+                  {p.brand_name ? <p className="text-sm text-white/80">{p.brand_name}</p> : null}
+                  <p className="line-clamp-2 font-display text-xl font-bold leading-[1.1]">{p.title}</p>
+                  <p className="mt-2 text-md font-semibold [&_s]:text-white/70 [&_.text-rust]:text-white">
+                    <SalePrice kopecks={p.min_price_kopecks} oldKopecks={p.old_min_price_kopecks} />
+                  </p>
+                </div>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+      {count > 1 ? (
+        <div className="absolute right-4 top-4 flex gap-1.5" role="tablist" aria-label="Слайды">
+          {Array.from({ length: count }).map((_, idx) => (
+            <button key={idx} role="tab" aria-selected={idx === i} aria-label={`Слайд ${idx + 1}`} onClick={() => { touched.current = true; go(idx); }}
+              className={idx === i ? 'h-1.5 w-6 bg-white' : 'h-1.5 w-1.5 bg-white/60'} />
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export default function HomePage() {
   const session = useSession();
   const navigate = useNavigate();
@@ -74,7 +146,7 @@ export default function HomePage() {
   const fresh = useQuery({ queryKey: ['catalog', 'new-home'], queryFn: () => searchCatalog({ sort: 'new', limit: 6, inStock: true }) });
   // Случайные товары из наличия: берём до 60 и перемешиваем при каждом открытии главной
   const inStock = useQuery({ queryKey: ['catalog', 'in-stock-home'], queryFn: () => searchCatalog({ sort: 'new', limit: 60, inStock: true }), staleTime: 0 });
-  const randomPicks = useMemo(() => shuffle((inStock.data ?? []).filter((p) => p.stock_state !== 'out_of_stock')).slice(0, 6), [inStock.data]);
+  const randomPicks = useMemo(() => shuffle((inStock.data ?? []).filter((p) => p.stock_state !== 'out_of_stock' && p.cover_ref)).slice(0, 8), [inStock.data]);
   const popular = useQuery({ queryKey: ['catalog', 'popular'], queryFn: popularProducts });
   const collections = useQuery({ queryKey: ['collections'], queryFn: getCollections });
   const settings = useQuery({ queryKey: ['settings'], queryFn: getPublicSettings });
@@ -116,7 +188,12 @@ export default function HomePage() {
         </label>
       </form>
 
-      {banners.isLoading ? <Skeleton className="aspect-square w-full" /> : <Hero banners={banners.data ?? []} />}
+      {banners.isLoading || (sections.in_stock && inStock.isLoading) ? <Skeleton className="aspect-square w-full" /> : (
+        sections.in_stock && randomPicks.length > 0
+          // Подборка из наличия; демо-баннеры в этом случае не показываем, настоящие — первыми слайдами
+          ? <Showcase products={randomPicks} banners={(banners.data ?? []).filter((b) => !b.is_demo)} />
+          : <Hero banners={banners.data ?? []} />
+      )}
 
       {session.isAdmin ? (
         <div className="px-4 pt-4">
@@ -138,13 +215,6 @@ export default function HomePage() {
           {categories.isLoading ? <li className="py-3"><Skeleton className="h-6 w-1/2" /></li> : null}
         </ul>
       </nav>
-
-      {sections.in_stock && (inStock.isLoading || randomPicks.length > 0) ? (
-        <>
-          <SectionTitle action={<Link to="/catalog" className="text-sm text-graphite underline underline-offset-4">Весь каталог</Link>}>Сейчас в наличии</SectionTitle>
-          <ProductGrid items={randomPicks} loading={inStock.isLoading} />
-        </>
-      ) : null}
 
       {sections.new ? (
         <>

@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { as, createDb, createProfile, createSellableProduct, expectDbError, grantRole, one, orderPayload, q, type Db } from './harness';
 
 let db: Db;
-let manager: string, alice: string, admin: string;
+let manager: string, alice: string, admin: string, owner: string;
 let tee: { productId: string; variantId: string };
 let hoodie: { productId: string; variantId: string };
 
@@ -24,6 +24,8 @@ beforeAll(async () => {
   await grantRole(db, manager, 'manager');
   admin = await createProfile(db, 3002, 'adm');
   await grantRole(db, admin, 'admin');
+  owner = await createProfile(db, 3000, 'own');
+  await grantRole(db, owner, 'owner');
   tee = await createSellableProduct(db, { slug: 'tee', price: 199000, stock: 5 });
   hoodie = await createSellableProduct(db, { slug: 'hoodie', price: 450000, stock: 2 });
 });
@@ -182,7 +184,7 @@ describe('статусы и workflow менеджера', () => {
     const aw = await action(id, 'await_shipment');
     expect(aw.status).toBe('awaiting_shipment');
     expect(aw.notify).toBe('awaiting_shipment');
-    const shipped = await action(id, 'ship', { carrier: 'keep_courier', cost_kopecks: 30000 }, admin);
+    const shipped = await action(id, 'ship', { carrier: 'keep_courier', cost_kopecks: 30000 }, owner);
     expect(shipped.status).toBe('shipped');
     expect(shipped.notify).toBe('shipped');
     await action(id, 'set_tracking', { tracking_number: '1234567890' });
@@ -197,15 +199,18 @@ describe('статусы и workflow менеджера', () => {
     expect(Number(lc.cost_kopecks)).toBe(30000);
   });
 
-  it('расходы на курьера видит только владелец/админ, их можно изменить или убрать', async () => {
+  it('расходы на курьера видит и меняет только владелец', async () => {
     const r = await create(orderPayload([{ variant_id: tee.variantId, quantity: 1, expected_unit_price_kopecks: 199000 }]));
     await expectDbError(action(r.order_id!, 'set_logistics_cost', { cost_kopecks: 25000 }), 'FORBIDDEN'); // менеджер не может
-    await action(r.order_id!, 'set_logistics_cost', { cost_kopecks: 25000 }, admin);
+    await expectDbError(action(r.order_id!, 'set_logistics_cost', { cost_kopecks: 25000 }, admin), 'FORBIDDEN'); // администратор тоже
+    await action(r.order_id!, 'set_logistics_cost', { cost_kopecks: 25000 }, owner);
+    const adminSees = await as(db, 'authenticated', admin, () => q(db, 'select * from public.order_logistics_costs where order_id = $1', [r.order_id]));
+    expect(adminSees).toHaveLength(0);
     const mgrSees = await as(db, 'authenticated', manager, () => q(db, 'select * from public.order_logistics_costs where order_id = $1', [r.order_id]));
     expect(mgrSees).toHaveLength(0);
     const mine = await as(db, 'authenticated', alice, () => q(db, 'select * from public.order_logistics_costs where order_id = $1', [r.order_id]));
     expect(mine).toHaveLength(0);
-    await action(r.order_id!, 'set_logistics_cost', { cost_kopecks: null }, admin);
+    await action(r.order_id!, 'set_logistics_cost', { cost_kopecks: null }, owner);
     expect(await q(db, 'select * from public.order_logistics_costs where order_id = $1', [r.order_id])).toHaveLength(0);
   });
 
@@ -235,5 +240,36 @@ describe('статусы и workflow менеджера', () => {
     const r = await create(orderPayload([{ variant_id: tee.variantId, quantity: 1, expected_unit_price_kopecks: 199000 }]));
     const c = await as(db, 'authenticated', alice, () => one<{ r: { status: string } }>(db, `select public.customer_cancel_order($1, 'передумал') r`, [r.order_id]));
     expect(c.r.status).toBe('cancelled');
+  });
+});
+
+describe('сотрудники: выдача ролей по Telegram ID и @username', () => {
+  const invite = (ident: string, role: string, user = owner) =>
+    as(db, 'authenticated', user, () => one<{ r: { result: string } }>(db, 'select public.staff_invite($1, $2) r', [ident, role])).then((x) => x.r);
+  const rolesOf = (id: string) => q<{ role: string }>(db, 'select role from public.user_roles where user_id = $1', [id]).then((r) => r.map((x) => x.role));
+
+  it('уже заходивший пользователь получает роль сразу', async () => {
+    const u = await createProfile(db, 7001, 'existing_mgr');
+    expect((await invite('@existing_mgr', 'manager')).result).toBe('granted');
+    expect(await rolesOf(u)).toEqual(['manager']);
+  });
+
+  it('по Telegram ID ещё не заходившего — приглашение, роль появляется при первом входе', async () => {
+    expect((await invite('7002', 'manager')).result).toBe('invited');
+    const u = await createProfile(db, 7002, 'newbie');
+    expect(await rolesOf(u)).toEqual(['manager']);
+    expect(await q(db, 'select * from public.staff_invites where telegram_id = 7002')).toHaveLength(0);
+  });
+
+  it('по @username и ссылке t.me — тоже приглашение', async () => {
+    expect((await invite('https://t.me/Future_Admin', 'admin')).result).toBe('invited');
+    const u = await createProfile(db, 7003, 'future_admin');
+    expect(await rolesOf(u)).toEqual(['admin']);
+  });
+
+  it('менеджер не может выдавать роли, администратор — не может выдать администратора', async () => {
+    await expectDbError(invite('7004', 'manager', manager), 'FORBIDDEN');
+    await expectDbError(invite('7005', 'admin', admin), 'FORBIDDEN');
+    await expectDbError(invite('не ник!', 'manager'), 'VALIDATION');
   });
 });
