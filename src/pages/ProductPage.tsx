@@ -9,7 +9,7 @@ import { haptic } from '@/lib/telegram';
 import type { CatalogVariant } from '@/lib/types';
 import { Gallery, ProductRail, StockLine, sortSizes } from '@/components/product';
 import { Button, Chip, DemoBadge, EmptyState, ErrorState, Price, SectionTitle, Skeleton, Stepper } from '@/components/ui';
-import { IconChevronDown, IconHeart } from '@/components/icons';
+import { IconChevronDown, IconEdit, IconHeart } from '@/components/icons';
 import { useToast } from '@/components/toast';
 
 function Details({ title, children, defaultOpen }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
@@ -106,6 +106,15 @@ export default function ProductPage() {
         </button>
         {product.is_demo ? <div className="absolute left-3 top-3"><DemoBadge /></div> : null}
       </div>
+
+      {session.isAdmin ? (
+        <div className="px-4 pt-4">
+          <Link to={`/admin/products/${product.id}?from=${encodeURIComponent(`/product/${product.slug}`)}`}
+            className="flex h-11 w-full items-center justify-center gap-2 border border-ink text-sm font-medium">
+            <IconEdit size={18} /> Редактировать товар
+          </Link>
+        </div>
+      ) : null}
 
       <div className="px-4 pt-5">
         {product.brand_name ? <p className="text-sm text-graphite">{product.brand_name}</p> : null}

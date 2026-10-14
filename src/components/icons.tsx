@@ -27,6 +27,7 @@ export const IconMinus = (p: P) => <Svg {...p}><path d="M5 12h14" /></Svg>;
 export const IconChevronRight = (p: P) => <Svg {...p}><path d="m9 6 6 6-6 6" /></Svg>;
 export const IconChevronLeft = (p: P) => <Svg {...p}><path d="m15 6-6 6 6 6" /></Svg>;
 export const IconChevronDown = (p: P) => <Svg {...p}><path d="m6 9 6 6 6-6" /></Svg>;
+export const IconEdit = (p: P) => <Svg {...p}><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="m13.5 6.5 4 4" /></Svg>;
 export const IconTrash = (p: P) => <Svg {...p}><path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13" /></Svg>;
 export const IconTruck = (p: P) => <Svg {...p}><path d="M3 6h11v10H3zM14 10h4l3 3v3h-7" /><circle cx="7" cy="18" r="1.6" /><circle cx="17" cy="18" r="1.6" /></Svg>;
 export const IconBox = (p: P) => <Svg {...p}><path d="M4 8 12 4l8 4v8l-8 4-8-4z" /><path d="M4 8l8 4 8-4M12 12v8" /></Svg>;

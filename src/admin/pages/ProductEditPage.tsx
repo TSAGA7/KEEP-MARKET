@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { callFunction, db, imageUrl } from '@/lib/supabase';
@@ -29,6 +29,10 @@ const intOrNull = (v: string) => (v.trim() === '' ? null : Math.max(1, Math.roun
 
 export default function ProductEditPage() {
   const { id = '' } = useParams();
+  const [searchParams] = useSearchParams();
+  // Пришли из карточки в магазине — «Назад» возвращает туда же
+  const fromParam = searchParams.get('from');
+  const backTo = fromParam && /^\/product\/[\w-]+$/.test(fromParam) ? fromParam : '/admin/products';
   const isNew = id === 'new';
   const s = useSession();
   const navigate = useNavigate();
@@ -72,6 +76,8 @@ export default function ProductEditPage() {
     await qc.invalidateQueries({ queryKey: ['admin', 'product', id] });
     await qc.invalidateQueries({ queryKey: ['admin', 'blockers', id] });
     await qc.invalidateQueries({ queryKey: ['admin', 'products'] });
+    // Карточка в магазине покажет изменения сразу после возврата
+    await qc.invalidateQueries({ queryKey: ['product'] });
   };
 
   const save = handleSubmit(async (f) => {
@@ -121,15 +127,18 @@ export default function ProductEditPage() {
     }
   };
 
-  if (!isNew && q.isLoading) return <AdminPage title="Товар" back="/admin/products"><Skeleton className="h-96" /></AdminPage>;
-  if (!isNew && (q.isError || !q.data?.product)) return <AdminPage title="Товар" back="/admin/products"><ErrorState text="Товар не найден или нет доступа." /></AdminPage>;
+  if (!isNew && q.isLoading) return <AdminPage title="Товар" back={backTo}><Skeleton className="h-96" /></AdminPage>;
+  if (!isNew && (q.isError || !q.data?.product)) return <AdminPage title="Товар" back={backTo}><ErrorState text="Товар не найден или нет доступа." /></AdminPage>;
   const p = q.data?.product;
 
   return (
-    <AdminPage title={isNew ? 'Новый товар' : p!.title} back="/admin/products" actions={!isNew && p ? (
+    <AdminPage title={isNew ? 'Новый товар' : p!.title} back={backTo} actions={!isNew && p ? (
       <>
         <Badge tone={p.status === 'published' ? 'good' : 'warn'}>{PRODUCT_STATUS_LABEL[p.status]}</Badge>
         <Button size="sm" variant="secondary" onClick={() => setPreview(true)}><IconEye size={18} />Предпросмотр</Button>
+        {p.status === 'published' ? (
+          <Link to={`/product/${p.slug}`} className="inline-flex h-9 items-center border border-line px-3 text-sm">В магазине</Link>
+        ) : null}
       </>
     ) : null}>
       {!canEdit ? <Notice className="mb-4">Редактирование товаров доступно владельцу и администраторам. Остатки подтверждайте в разделе «Размеры и остатки».</Notice> : null}
@@ -359,12 +368,18 @@ function ImagesSection({ productId, images, canEdit, onChange }: { productId: st
   );
 }
 
+const DEFAULT_STOCK = 3;
+function stockOrDefault(raw: string): number {
+  const n = Number(raw.trim());
+  return raw.trim() !== '' && Number.isInteger(n) && n >= 0 ? n : DEFAULT_STOCK;
+}
+
 function VariantsSection({ productId, variants, canEdit, onChange }: { productId: string; variants: AdminVariant[]; canEdit: boolean; onChange: () => Promise<void> }) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [sizes, setSizes] = useState('');
   const [colors, setColors] = useState('');
-  const [stock, setStock] = useState('0');
+  const [stock, setStock] = useState(String(DEFAULT_STOCK));
   const add = async () => {
     const sz = sizes.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
     const cl = colors.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
@@ -372,7 +387,7 @@ function VariantsSection({ productId, variants, canEdit, onChange }: { productId
     for (const c of cl.length ? cl : [null]) for (const s of sz.length ? sz : [null]) combos.push({ size: s, color: c });
     try {
       const rows = combos.map((c, i) => ({
-        product_id: productId, size: c.size, color: c.color, stock_qty: Math.max(0, Number(stock) || 0), stock_confirmed_at: new Date().toISOString(),
+        product_id: productId, size: c.size, color: c.color, stock_qty: stockOrDefault(stock), stock_confirmed_at: new Date().toISOString(),
         sort_order: variants.length + i, // артикул варианта присваивает база
 
       }));
@@ -383,6 +398,16 @@ function VariantsSection({ productId, variants, canEdit, onChange }: { productId
     } catch (e) {
       toast(errText(e).includes('duplicate') ? 'Такой вариант или артикул уже есть' : errText(e), 'error');
     }
+  };
+  const setStockQty = async (v: AdminVariant, raw: string) => {
+    const n = Number(raw.trim());
+    if (raw.trim() === '' || !Number.isInteger(n) || n < 0 || n > 100000) { toast('Остаток — целое число от 0', 'error'); return; }
+    if (n === v.stock_qty && v.stock_confirmed_at) return;
+    try {
+      await rpc('staff_confirm_stock', { p_variant_id: v.id, p_stock_qty: n, p_note: 'Изменено в карточке товара' });
+      toast(`Остаток ${v.size ?? v.sku}: ${n} шт.`, 'success');
+      await onChange();
+    } catch (e) { toast(errText(e), 'error'); }
   };
   const update = async (v: AdminVariant, patch: Partial<AdminVariant>) => {
     try {
@@ -401,14 +426,17 @@ function VariantsSection({ productId, variants, canEdit, onChange }: { productId
                 <Input className="h-9 w-28" inputMode="decimal" placeholder="как у товара" defaultValue={kopecksToRublesInput(v.price_override_kopecks)}
                   onBlur={(e) => { const val = e.target.value.trim(); const k = val ? parseRublesToKopecks(val) : null; if (val && k === null) return; if (k !== v.price_override_kopecks) void update(v, { price_override_kopecks: k }); }} />
               ) : v.price_override_kopecks ? <Price kopecks={v.price_override_kopecks} /> : 'как у товара'}</Td>
-              <Td className="num">{v.stock_qty}</Td>
+              <Td>{canEdit ? (
+                <Input key={`${v.id}-${v.stock_qty}`} className="h-9 w-20" inputMode="numeric" defaultValue={String(v.stock_qty)} aria-label={`Остаток ${v.size ?? v.sku}`}
+                  onBlur={(e) => void setStockQty(v, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+              ) : <span className="num">{v.stock_qty}</span>}</Td>
               <Td className="whitespace-nowrap text-graphite">{v.stock_confirmed_at ? formatDateTime(v.stock_confirmed_at) : 'никогда'}</Td>
               <Td><input type="checkbox" checked={v.is_active} disabled={!canEdit} onChange={(e) => update(v, { is_active: e.target.checked })} aria-label="Активен" className="h-4 w-4" /></Td>
             </tr>
           ))}
         </Table>
       )}
-      <p className="mt-2 text-sm text-graphite">Остаток подтверждается в разделе «Размеры и остатки» или импортом прайса.</p>
+      <p className="mt-2 text-sm text-graphite">Остаток можно поменять прямо в таблице — сохраняется сам. Новые размеры получают остаток {DEFAULT_STOCK} шт.</p>
       <Sheet open={open} onClose={() => setOpen(false)} title="Новые варианты" footer={<Button block onClick={add}>Добавить</Button>}>
         <div className="space-y-4">
           <Field label="Размеры через запятую" optional hint="Например: S, M, L или 40, 41, 42">{(fid) => <Input id={fid} value={sizes} onChange={(e) => setSizes(e.target.value)} />}</Field>

@@ -109,7 +109,7 @@ export async function importFromMessage(m: ImportMessage): Promise<void> {
       `<b>Черновик создан</b>: ${esc(parsed.title || 'без названия')}`,
       parsed.priceKopecks ? `Цена из поста: ${esc(formatRub(parsed.priceKopecks))} → ${r.cost_kopecks ? 'записана как закупочная' : 'записана как розничная'}` : 'Цена в посте не найдена — укажите вручную',
       r.retail_kopecks ? `Розничная (с наценкой): ${esc(formatRub(r.retail_kopecks))}` : (r.cost_kopecks ? 'Розничную цену укажите в карточке' : ''),
-      parsed.sizes.length ? `Размеры: ${esc(parsed.sizes.join(', '))} (остаток 0 — уточните у поставщика)` : 'Размеры не найдены — добавьте варианты',
+      parsed.sizes.length ? `Размеры: ${esc(parsed.sizes.join(', '))} (остаток 3 шт. — можно поменять в карточке)` : 'Размеры не найдены — добавьте варианты',
       r.supplier_found ? 'Поставщик определён по каналу' : 'Поставщик не определён — выберите в карточке',
       kicked
         ? 'Фон на фото удалится через 2–5 минут. Остальные фото альбома добавятся в этот же товар.'
