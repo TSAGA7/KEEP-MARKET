@@ -35,7 +35,7 @@ describe('артикулы', () => {
 });
 
 describe('импорт из поста', () => {
-  it('создаёт черновик: непроверенный, с закупочной ценой, вариантами без остатка', async () => {
+  it('создаёт черновик: непроверенный, с закупочной ценой, вариантами с остатком 3 по умолчанию', async () => {
     const r = await upsert(9001, 'album:1', { price: 1_290_000, sizes: ['S', 'M', 'L'] });
     expect(r.created).toBe(true);
     expect(r.cost_kopecks).toBe(1_290_000);
@@ -45,7 +45,7 @@ describe('импорт из поста', () => {
     expect(Number(p.price_kopecks)).toBe(0);
     expect(p.sku).toMatch(/^KM-/);
     const vs = await q<{ size: string; stock_qty: number }>(db, 'select size, stock_qty from public.product_variants where product_id = $1 order by sort_order', [r.product_id]);
-    expect(vs).toEqual([{ size: 'S', stock_qty: 0 }, { size: 'M', stock_qty: 0 }, { size: 'L', stock_qty: 0 }]);
+    expect(vs).toEqual([{ size: 'S', stock_qty: 3 }, { size: 'M', stock_qty: 3 }, { size: 'L', stock_qty: 3 }]);
     // На витрине черновика нет
     expect(await q(db, 'select id from public.catalog_products where id = $1', [r.product_id])).toHaveLength(0);
   });
