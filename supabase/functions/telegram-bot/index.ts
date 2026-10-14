@@ -29,14 +29,28 @@ function messageKind(m: TgMessage): string {
 }
 type Update = { update_id: number; message?: TgMessage };
 
-function shopButton(path = '') {
+const DEFAULT_MANAGER_URL = 'https://t.me/keep_admin';
+
+async function managerUrl(): Promise<string> {
+  const v = await getSetting<string>('manager_contact_url');
+  return v && /^https:\/\/t\.me\/[A-Za-z0-9_]{4,64}$/.test(v) ? v : DEFAULT_MANAGER_URL;
+}
+
+type Btn = { text: string; url?: string; web_app?: { url: string } };
+
+function shopButton(path = ''): Btn[][] | undefined {
   const url = appUrl(path);
   return url ? [[{ text: 'Открыть магазин', web_app: { url } }]] : undefined;
 }
 
+/** Кнопки «Открыть магазин» + «Написать менеджеру» */
+async function shopAndManager(path = ''): Promise<Btn[][]> {
+  return [...(shopButton(path) ?? []), [{ text: 'Написать менеджеру', url: await managerUrl() }]];
+}
+
 async function supportText(): Promise<string> {
   const hours = (await getSetting<string>('support_hours')) ?? '';
-  return `Напишите сюда ваш вопрос по заказу или возврату — сообщение получит менеджер KEEP MARKET.${hours ? `\nЧасы работы: ${esc(hours)}` : ''}`;
+  return `Напишите менеджеру KEEP MARKET напрямую — @keep_admin, или отправьте вопрос сюда, в этот чат.${hours ? `\nЧасы работы: ${esc(hours)}` : ''}`;
 }
 
 async function upsertProfileFromBot(u: TgUser) {
@@ -69,12 +83,12 @@ async function handlePrivate(m: TgMessage) {
     const r = data as { result: string; order_id?: string; number?: string; status?: string };
     if (r?.result === 'order_linked' && r.order_id) {
       await sendMessage(m.chat.id,
-        `Заявка <b>${esc(r.number ?? '')}</b> получена.\nСтатус: ${esc(statusLabel(r.status ?? 'new'))}.\n\nМенеджер проверит наличие у поставщика и свяжется с вами здесь, чтобы согласовать доставку и оплату. Оплата на этом этапе не производится.\n\nМожете написать вопрос прямо в этот чат.`,
+        `Заявка <b>${esc(r.number ?? '')}</b> получена.\nСтатус: ${esc(statusLabel(r.status ?? 'new'))}.\n\nМенеджер подтвердит заказ и свяжется с вами здесь, чтобы согласовать доставку и оплату. Оплата на этом этапе не производится.\n\nМожете написать вопрос прямо в этот чат.`,
         appUrl(`orders/${r.order_id}`) ? [[{ text: 'Открыть заявку', web_app: { url: appUrl(`orders/${r.order_id}`) as string } }]] : undefined);
       await notifyManagers(`Покупатель открыл диалог в боте по заявке <b>${esc(r.number ?? '')}</b>. Ответьте на его сообщения reply-ответом в этом чате.`, r.order_id);
       return;
     }
-    await sendMessage(m.chat.id, 'Добро пожаловать в KEEP MARKET — одежда, обувь, сумки и аксессуары независимых брендов.\n\nОткройте магазин кнопкой ниже. Здесь же будут приходить уведомления о ваших заказах.', shopButton());
+    await sendMessage(m.chat.id, 'Добро пожаловать в KEEP MARKET — одежда, обувь, сумки и аксессуары.\n\nОткройте магазин кнопкой ниже. Здесь же будут приходить уведомления о ваших заказах. Вопросы — менеджеру @keep_admin.', await shopAndManager());
     return;
   }
 
@@ -96,9 +110,8 @@ async function handlePrivate(m: TgMessage) {
     return;
   }
 
-  if (text === '/help' || text === '/support') {
-    const manager = await getSetting<string>('manager_contact_url');
-    await sendMessage(m.chat.id, await supportText(), manager && /^https:\/\/t\.me\//.test(manager) ? [[{ text: 'Написать менеджеру', url: manager }]] : undefined);
+  if (text === '/help' || text === '/support' || text === '/manager') {
+    await sendMessage(m.chat.id, await supportText(), [[{ text: 'Написать менеджеру', url: await managerUrl() }]]);
     return;
   }
 
@@ -115,7 +128,7 @@ async function handlePrivate(m: TgMessage) {
   }
 
   if (text.startsWith('/')) {
-    await sendMessage(m.chat.id, 'Команды: /shop — магазин, /orders — мои заказы, /help — поддержка.');
+    await sendMessage(m.chat.id, 'Команды: /shop — магазин, /orders — мои заказы, /manager — написать менеджеру.', await shopAndManager());
     return;
   }
 

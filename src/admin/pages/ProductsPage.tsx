@@ -1,4 +1,4 @@
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { deleteArchivedProduct, errText, listProducts, PRODUCT_STATUS_LABEL, type AdminProduct } from '../api';
@@ -11,6 +11,7 @@ import { useToast } from '@/components/toast';
 
 export default function ProductsPage() {
   const [sp, setSp] = useSearchParams();
+  const navigate = useNavigate();
   const s = useSession();
   const status = sp.get('status') ?? '';
   const term = sp.get('q') ?? '';
@@ -49,7 +50,8 @@ export default function ProductsPage() {
         <Table head={[...(canDelete ? [''] : []), 'Товар', 'Артикул', 'Цена', 'Статус', 'Изменён']}>
           {q.data.map((p) => {
             return (
-              <tr key={p.id} className="hover:bg-concrete/60">
+              <tr key={p.id} className="cursor-pointer hover:bg-concrete/60 active:bg-concrete"
+                onClick={(e) => { if (!(e.target as HTMLElement).closest('button, a')) navigate(`/admin/products/${p.id}`); }}>
                 {canDelete ? (
                   <Td className="w-12 py-1.5">
                     <button type="button" aria-label={`Удалить ${p.title} навсегда`} title="Удалить навсегда"

@@ -21,18 +21,15 @@ export function ProductImage({ src, alt, className, eager }: { src: string | nul
 
 export function stockText(state: StockState): string {
   if (state === 'in_stock') return 'В наличии';
-  if (state === 'needs_confirmation') return 'Наличие уточняется';
+  if (state === 'needs_confirmation') return 'В наличии';
   return 'Нет в наличии';
 }
 
-export function StockLine({ state, confirmedAt, className }: { state: StockState; confirmedAt?: string | null; className?: string }) {
+export function StockLine({ state, className }: { state: StockState; className?: string }) {
   return (
     <span className={clsx('flex items-center gap-1.5 text-sm', state === 'in_stock' ? 'text-moss' : state === 'needs_confirmation' ? 'text-amber' : 'text-fog', className)}>
       <span className={clsx('h-1.5 w-1.5 rounded-full', state === 'in_stock' ? 'bg-moss' : state === 'needs_confirmation' ? 'bg-amber' : 'bg-fog')} aria-hidden />
-      <span>
-        {stockText(state)}
-        {confirmedAt && state !== 'out_of_stock' ? <span className="text-fog">{`, проверено ${formatRelative(confirmedAt)}`}</span> : null}
-      </span>
+      <span>{stockText(state)}</span>
     </span>
   );
 }

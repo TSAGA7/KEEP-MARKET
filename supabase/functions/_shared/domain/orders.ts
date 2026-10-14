@@ -2,8 +2,7 @@
 // (проверяется тестом tests/unit/statuses.test.ts).
 
 export const ORDER_STATUSES = [
-  'new', 'checking_availability', 'awaiting_customer_confirmation', 'confirmed', 'supplier_processing',
-  'ready_to_ship', 'shipped', 'delivered', 'cancelled', 'issue',
+  'new', 'checking_availability', 'awaiting_payment', 'awaiting_shipment', 'shipped', 'delivered', 'cancelled', 'issue',
 ] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
@@ -14,15 +13,13 @@ export const PAYMENT_METHODS = ['online', 'manual_transfer', 'cash_on_delivery',
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
 export const ORDER_TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
-  new: ['checking_availability', 'cancelled', 'issue'],
-  checking_availability: ['awaiting_customer_confirmation', 'confirmed', 'cancelled', 'issue'],
-  awaiting_customer_confirmation: ['confirmed', 'checking_availability', 'cancelled', 'issue'],
-  confirmed: ['supplier_processing', 'awaiting_customer_confirmation', 'cancelled', 'issue'],
-  supplier_processing: ['ready_to_ship', 'cancelled', 'issue'],
-  ready_to_ship: ['shipped', 'cancelled', 'issue'],
+  new: ['checking_availability', 'awaiting_payment', 'cancelled', 'issue'],
+  checking_availability: ['awaiting_payment', 'cancelled', 'issue'],
+  awaiting_payment: ['awaiting_shipment', 'checking_availability', 'cancelled', 'issue'],
+  awaiting_shipment: ['shipped', 'cancelled', 'issue'],
   shipped: ['delivered', 'issue'],
   delivered: ['issue'],
-  issue: ['checking_availability', 'awaiting_customer_confirmation', 'confirmed', 'supplier_processing', 'ready_to_ship', 'shipped', 'delivered', 'cancelled'],
+  issue: ['checking_availability', 'awaiting_payment', 'awaiting_shipment', 'shipped', 'delivered', 'cancelled'],
   cancelled: [],
 };
 
@@ -30,23 +27,21 @@ export function canTransition(from: OrderStatus, to: OrderStatus): boolean {
   return ORDER_TRANSITIONS[from].includes(to);
 }
 
+// Магазин продаёт собственный товар: в текстах для покупателя нет упоминаний поставщиков.
 export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
-  new: 'Новая заявка',
-  checking_availability: 'Проверяем наличие',
-  awaiting_customer_confirmation: 'Ждём вашего подтверждения',
-  confirmed: 'Подтверждён',
-  supplier_processing: 'Передан поставщику',
-  ready_to_ship: 'Готов к отправке',
-  shipped: 'Отправлен',
-  delivered: 'Доставлен',
-  cancelled: 'Отменён',
+  new: 'Ожидает подтверждения менеджера',
+  checking_availability: 'Проверка наличия',
+  awaiting_payment: 'Ожидает оплату',
+  awaiting_shipment: 'Ожидает отправку',
+  shipped: 'Отправлено',
+  delivered: 'Доставлено',
+  cancelled: 'Отменено',
   issue: 'Требует внимания',
 };
 
-/** Для админки формулировки другие: «ждём покупателя» и т.п. */
 export const ORDER_STATUS_LABEL_STAFF: Record<OrderStatus, string> = {
   ...ORDER_STATUS_LABEL,
-  awaiting_customer_confirmation: 'Ждём покупателя',
+  new: 'Новая заявка',
   issue: 'Проблема',
 };
 
@@ -66,25 +61,23 @@ export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
 };
 
 export type StaffAction =
-  | 'start_check' | 'record_availability' | 'mark_customer_agreed' | 'set_payment_method' | 'send_to_supplier'
-  | 'ready_to_ship' | 'ship' | 'set_tracking' | 'deliver' | 'cancel' | 'issue' | 'resolve_issue' | 'add_note' | 'assign_to_me';
+  | 'start_check' | 'record_availability' | 'set_payment_method' | 'await_shipment'
+  | 'ship' | 'set_tracking' | 'set_logistics_cost' | 'deliver' | 'cancel' | 'issue' | 'resolve_issue' | 'add_note' | 'assign_to_me';
 
 export const STAFF_ACTIONS: readonly StaffAction[] = [
-  'start_check', 'record_availability', 'mark_customer_agreed', 'set_payment_method', 'send_to_supplier',
-  'ready_to_ship', 'ship', 'set_tracking', 'deliver', 'cancel', 'issue', 'resolve_issue', 'add_note', 'assign_to_me',
+  'start_check', 'record_availability', 'set_payment_method', 'await_shipment',
+  'ship', 'set_tracking', 'set_logistics_cost', 'deliver', 'cancel', 'issue', 'resolve_issue', 'add_note', 'assign_to_me',
 ];
 
 /** Какие основные действия показывать менеджеру в текущем статусе (сервер всё равно проверит). */
 export function availableStaffActions(status: OrderStatus): StaffAction[] {
   const common: StaffAction[] = ['add_note'];
   switch (status) {
-    case 'new': return ['start_check', 'cancel', 'issue', ...common];
+    case 'new': return ['start_check', 'record_availability', 'cancel', 'issue', ...common];
     case 'checking_availability': return ['record_availability', 'cancel', 'issue', ...common];
-    case 'awaiting_customer_confirmation': return ['mark_customer_agreed', 'record_availability', 'cancel', 'issue', ...common];
-    case 'confirmed': return ['set_payment_method', 'send_to_supplier', 'cancel', 'issue', ...common];
-    case 'supplier_processing': return ['ready_to_ship', 'set_payment_method', 'cancel', 'issue', ...common];
-    case 'ready_to_ship': return ['ship', 'cancel', 'issue', ...common];
-    case 'shipped': return ['set_tracking', 'deliver', 'issue', ...common];
+    case 'awaiting_payment': return ['await_shipment', 'set_payment_method', 'cancel', 'issue', ...common];
+    case 'awaiting_shipment': return ['ship', 'cancel', 'issue', ...common];
+    case 'shipped': return ['deliver', 'set_tracking', 'issue', ...common];
     case 'delivered': return ['issue', ...common];
     case 'issue': return ['resolve_issue', 'cancel', ...common];
     case 'cancelled': return common;
@@ -96,7 +89,7 @@ export const ITEM_AVAILABILITY_LABEL = {
   confirmed: 'В наличии',
   unavailable: 'Нет в наличии',
   replacement_offered: 'Предложена замена',
-  waiting: 'Ожидание поставки',
+  waiting: 'Ожидается',
 } as const;
 export type ItemAvailability = keyof typeof ITEM_AVAILABILITY_LABEL;
 
@@ -115,7 +108,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
   ALL_ITEMS_UNAVAILABLE_CANCEL_INSTEAD: 'Все позиции недоступны — отмените заявку с указанием причины',
   PAYMENT_METHOD_REQUIRED: 'Сначала согласуйте способ оплаты',
   PAYMENT_METHOD_NOT_ALLOWED: 'Этот способ оплаты не включён в настройках магазина',
-  PAYMENT_REQUIRED_BEFORE_SUPPLIER: 'Для онлайн-оплаты заказ передаётся поставщику только после подтверждённой оплаты',
+  PAYMENT_REQUIRED_BEFORE_SUPPLIER: 'При онлайн-оплате заказ переходит к отправке только после подтверждённой оплаты',
   REFUND_REQUIRED_BEFORE_CANCEL: 'Заказ оплачен: сначала оформите возврат',
   CANNOT_CANCEL_IN_THIS_STATE: 'Заказ уже передан в работу — для отмены свяжитесь с менеджером',
   CONTACT_MANAGER_TO_CANCEL_PAID_ORDER: 'Заказ оплачен — для отмены свяжитесь с менеджером',

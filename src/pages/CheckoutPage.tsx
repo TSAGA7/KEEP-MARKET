@@ -18,7 +18,7 @@ import { ProductImage } from '@/components/product';
 import { Button, Checkbox, EmptyState, Field, Input, Notice, Price, Select, Textarea } from '@/components/ui';
 import { useToast } from '@/components/toast';
 
-const WARNING = 'Заказ будет подтверждён после проверки наличия у поставщика. Менеджер свяжется с вами для согласования окончательных условий доставки и оплаты. На этом этапе оплата не производится.';
+const WARNING = 'После оформления менеджер подтвердит заказ и свяжется с вами, чтобы согласовать доставку и оплату. На этом этапе оплата не производится.';
 
 type FormValues = {
   contact: { recipient_name: string; phone: string; email: string };

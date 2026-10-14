@@ -17,7 +17,7 @@ export default function CheckoutDonePage() {
       <div className="flex h-12 w-12 items-center justify-center bg-ink text-paper"><IconCheck size={26} /></div>
       <h1 className="mt-5 font-display text-2xl leading-tight">Заявка принята</h1>
       {state.number ? <p className="mt-2 text-md">Номер заявки <span className="num font-semibold">{state.number}</span></p> : null}
-      <p className="mt-4 text-graphite">Менеджер проверит наличие у поставщика и свяжется с вами, чтобы согласовать доставку и способ оплаты. Деньги не списывались.</p>
+      <p className="mt-4 text-graphite">Менеджер подтвердит заказ и свяжется с вами, чтобы согласовать доставку и способ оплаты. Деньги не списывались.</p>
 
       {link ? (
         <Button block size="lg" className="mt-6" onClick={() => openTelegramLink(link)}>

@@ -28,10 +28,10 @@ const payloadSchema = z.object({
   payment_method: z.enum(['online', 'manual_transfer', 'cash_on_delivery', 'other']).optional(),
   carrier: z.enum(['cdek', 'ozon', 'russian_post', 'yandex', 'keep_courier', 'other']).optional(),
   tracking_number: z.string().regex(/^[A-Za-z0-9-]{4,40}$/).optional().or(z.literal('')),
-  cost_kopecks: z.number().int().min(0).max(100_000_000).optional(),
+  cost_kopecks: z.number().int().min(0).max(100_000_000).nullable().optional(),
   notes: z.string().max(500).optional(),
   shipment_id: z.string().uuid().optional(),
-  target_status: z.enum(['checking_availability', 'awaiting_customer_confirmation', 'confirmed', 'supplier_processing', 'ready_to_ship', 'shipped', 'delivered']).optional(),
+  target_status: z.enum(['checking_availability', 'awaiting_payment', 'awaiting_shipment', 'shipped', 'delivered']).optional(),
 }).strict();
 
 const bodySchema = z.object({

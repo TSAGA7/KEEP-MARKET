@@ -8,7 +8,7 @@ import { ProductImage } from './product';
 export function statusTone(s: OrderStatus): 'neutral' | 'good' | 'warn' | 'bad' | 'ink' {
   if (s === 'cancelled') return 'neutral';
   if (s === 'issue') return 'bad';
-  if (s === 'awaiting_customer_confirmation' || s === 'new' || s === 'checking_availability') return 'warn';
+  if (s === 'new' || s === 'checking_availability' || s === 'awaiting_payment') return 'warn';
   if (s === 'delivered') return 'good';
   return 'ink';
 }

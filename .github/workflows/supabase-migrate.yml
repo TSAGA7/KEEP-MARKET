@@ -68,3 +68,14 @@ jobs:
           for f in auth-telegram create-order order-action payment-create payment-webhook payment-refund telegram-bot photo-kick; do
             supabase functions deploy "$f" --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --import-map supabase/functions/import_map.json
           done
+
+      - name: Меню команд бота
+        if: ${{ !cancelled() }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then echo "Нет секрета TELEGRAM_BOT_TOKEN — пропускаю"; exit 0; fi
+          curl -fsS -o /dev/null -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setMyCommands" \
+            -H "Content-Type: application/json" \
+            -d '{"commands":[{"command":"shop","description":"Открыть магазин"},{"command":"orders","description":"Мои заказы"},{"command":"manager","description":"Написать менеджеру"},{"command":"help","description":"Поддержка"}]}' \
+            && echo "Меню команд обновлено" || echo "::warning::Не удалось обновить меню команд бота"

@@ -36,6 +36,7 @@ await call('setMyCommands', {
   commands: [
     { command: 'shop', description: 'Открыть магазин' },
     { command: 'orders', description: 'Мои заказы' },
+    { command: 'manager', description: 'Написать менеджеру' },
     { command: 'help', description: 'Поддержка' },
   ],
 });

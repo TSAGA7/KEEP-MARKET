@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { as, createDb, createProfile, createSellableProduct, expectDbError, grantRole, one, orderPayload, q, type Db } from './harness';
 
 let db: Db;
-let manager: string, alice: string;
+let manager: string, alice: string, admin: string;
 let tee: { productId: string; variantId: string };
 let hoodie: { productId: string; variantId: string };
 
@@ -22,6 +22,8 @@ beforeAll(async () => {
   manager = await createProfile(db, 3001, 'mgr');
   alice = await createProfile(db, 4001, 'alice');
   await grantRole(db, manager, 'manager');
+  admin = await createProfile(db, 3002, 'adm');
+  await grantRole(db, admin, 'admin');
   tee = await createSellableProduct(db, { slug: 'tee', price: 199000, stock: 5 });
   hoodie = await createSellableProduct(db, { slug: 'hoodie', price: 450000, stock: 2 });
 });
@@ -81,14 +83,12 @@ describe('создание заявки', () => {
     expect(r2.problems?.[0]).toMatchObject({ code: 'INSUFFICIENT_STOCK', available: 2 });
   });
 
-  it('неактуальный остаток: заявка создаётся, но позиция помечена как требующая проверки', async () => {
-    const stale = await createSellableProduct(db, { slug: 'stale', price: 5000, stock: 4, confirmedHoursAgo: 200 });
-    const cat = await one<{ stock_state: string }>(db, 'select stock_state from public.catalog_products where id = $1', [stale.productId]);
-    expect(cat.stock_state).toBe('needs_confirmation');
-    const r = await create(orderPayload([{ variant_id: stale.variantId, quantity: 1, expected_unit_price_kopecks: 5000 }]));
+  it('давно заданный остаток не устаревает: товар «в наличии», пока остаток больше нуля', async () => {
+    const old = await createSellableProduct(db, { slug: 'stale', price: 5000, stock: 4, confirmedHoursAgo: 200 });
+    const cat = await one<{ stock_state: string }>(db, 'select stock_state from public.catalog_products where id = $1', [old.productId]);
+    expect(cat.stock_state).toBe('in_stock');
+    const r = await create(orderPayload([{ variant_id: old.variantId, quantity: 1, expected_unit_price_kopecks: 5000 }]));
     expect(r.ok).toBe(true);
-    const it = await one<{ stock_was_fresh: boolean }>(db, 'select stock_was_fresh from public.order_items where order_id = $1', [r.order_id]);
-    expect(it.stock_was_fresh).toBe(false);
   });
 
   it('неопубликованный (черновик) товар нельзя заказать даже по прямому id варианта', async () => {
@@ -121,7 +121,8 @@ describe('статусы и workflow менеджера', () => {
     const r = await create(orderPayload([{ variant_id: tee.variantId, quantity: 1, expected_unit_price_kopecks: 199000 }]));
     await expectDbError(q(db, `update public.orders set status = 'shipped' where id = $1`, [r.order_id]), 'INVALID_STATUS_TRANSITION');
     await expectDbError(action(r.order_id!, 'ship', { carrier: 'cdek' }), 'INVALID_STATUS_TRANSITION');
-    await expectDbError(action(r.order_id!, 'send_to_supplier'), 'INVALID_STATE');
+    await expectDbError(action(r.order_id!, 'await_shipment'), 'INVALID_STATE');
+    await expectDbError(action(r.order_id!, 'send_to_supplier'), 'UNKNOWN_ACTION');
   });
 
   it('статус paid нельзя выставить без подтверждённого платежа', async () => {
@@ -132,7 +133,7 @@ describe('статусы и workflow менеджера', () => {
     await db.exec(`select set_config('app.payment_ctx', 'off', false)`);
   });
 
-  it('полный цикл: отсутствие позиции → изменение условий → подтверждение покупателем → поставщик → отправка → доставка', async () => {
+  it('полный цикл: проверка наличия → ожидает оплату → ожидает отправку → отправлено → доставлено', async () => {
     const r = await create(orderPayload([
       { variant_id: tee.variantId, quantity: 1, expected_unit_price_kopecks: 199000 },
       { variant_id: hoodie.variantId, quantity: 1, expected_unit_price_kopecks: 450000 },
@@ -142,7 +143,6 @@ describe('статусы и workflow менеджера', () => {
 
     const items = await q<{ id: string; unit_price_kopecks: number }>(db,
       'select id, unit_price_kopecks from public.order_items where order_id = $1 order by unit_price_kopecks', [id]);
-    // Изменение цены без причины запрещено
     await expectDbError(action(id, 'record_availability', {
       items: [{ item_id: items[0]!.id, availability: 'confirmed', new_unit_price_kopecks: 210000 }],
     }), 'PRICE_CHANGE_REASON_REQUIRED');
@@ -150,38 +150,48 @@ describe('статусы и workflow менеджера', () => {
     const res = await action(id, 'record_availability', {
       items: [
         { item_id: items[0]!.id, availability: 'confirmed' },
-        { item_id: items[1]!.id, availability: 'unavailable', note: 'Нет у поставщика' },
+        { item_id: items[1]!.id, availability: 'unavailable', note: 'Нет в наличии' },
       ],
       delivery_kopecks: 35000, eta_text: '3–5 дней',
     });
-    expect(res.status).toBe('awaiting_customer_confirmation');
-    expect(res.notify).toBe('needs_confirmation');
+    expect(res.status).toBe('awaiting_payment');
+    expect(res.notify).toBe('awaiting_payment');
     const o1 = await one<{ total_kopecks: number; items_total_kopecks: number }>(db,
       'select total_kopecks, items_total_kopecks from public.orders where id = $1', [id]);
-    expect(Number(o1.items_total_kopecks)).toBe(199000); // недоступная позиция исключена
+    expect(Number(o1.items_total_kopecks)).toBe(199000);
     expect(Number(o1.total_kopecks)).toBe(199000 + 35000);
-    // Никаких платежей/возвратов при отсутствии товара
     expect(await q(db, 'select * from public.payments where order_id = $1', [id])).toHaveLength(0);
-    expect(await q(db, 'select * from public.refunds where order_id = $1', [id])).toHaveLength(0);
 
-    const conf = await as(db, 'authenticated', alice, () => one<{ r: { status: string } }>(db, 'select public.customer_confirm_order($1) r', [id]));
-    expect(conf.r.status).toBe('confirmed');
-
-    await expectDbError(action(id, 'send_to_supplier'), 'PAYMENT_METHOD_REQUIRED');
-    await expectDbError(action(id, 'set_payment_method', { payment_method: 'online' }), 'PAYMENT_METHOD_NOT_ALLOWED'); // онлайн выключен
+    await expectDbError(action(id, 'set_payment_method', { payment_method: 'online' }), 'PAYMENT_METHOD_NOT_ALLOWED');
     await action(id, 'set_payment_method', { payment_method: 'cash_on_delivery' });
-    expect((await action(id, 'send_to_supplier')).status).toBe('supplier_processing');
-    expect((await action(id, 'ready_to_ship')).status).toBe('ready_to_ship');
-    const shipped = await action(id, 'ship', { carrier: 'cdek', tracking_number: '1234567890' });
+    const aw = await action(id, 'await_shipment');
+    expect(aw.status).toBe('awaiting_shipment');
+    expect(aw.notify).toBe('awaiting_shipment');
+    const shipped = await action(id, 'ship', { carrier: 'keep_courier', cost_kopecks: 30000 }, admin);
     expect(shipped.status).toBe('shipped');
     expect(shipped.notify).toBe('shipped');
+    await action(id, 'set_tracking', { tracking_number: '1234567890' });
     expect((await action(id, 'deliver')).status).toBe('delivered');
 
     const hist = await q<{ to_status: string }>(db, 'select to_status from public.order_status_history where order_id = $1 order by id', [id]);
-    expect(hist.map((h) => h.to_status)).toEqual(['new', 'checking_availability', 'awaiting_customer_confirmation', 'confirmed',
-      'supplier_processing', 'ready_to_ship', 'shipped', 'delivered']);
-    const ship = await one<{ tracking_number: string; status: string }>(db, 'select tracking_number, status from public.shipments where order_id = $1', [id]);
-    expect(ship).toEqual({ tracking_number: '1234567890', status: 'delivered' });
+    expect(hist.map((h) => h.to_status)).toEqual(['new', 'checking_availability', 'awaiting_payment', 'awaiting_shipment', 'shipped', 'delivered']);
+    const ship = await one<{ tracking_number: string; status: string; cost_kopecks: number | null }>(db,
+      'select tracking_number, status, cost_kopecks from public.shipments where order_id = $1', [id]);
+    expect(ship).toEqual({ tracking_number: '1234567890', status: 'delivered', cost_kopecks: null }); // расходы покупателю не видны
+    const lc = await one<{ cost_kopecks: number }>(db, 'select cost_kopecks from public.order_logistics_costs where order_id = $1', [id]);
+    expect(Number(lc.cost_kopecks)).toBe(30000);
+  });
+
+  it('расходы на курьера видит только владелец/админ, их можно изменить или убрать', async () => {
+    const r = await create(orderPayload([{ variant_id: tee.variantId, quantity: 1, expected_unit_price_kopecks: 199000 }]));
+    await expectDbError(action(r.order_id!, 'set_logistics_cost', { cost_kopecks: 25000 }), 'FORBIDDEN'); // менеджер не может
+    await action(r.order_id!, 'set_logistics_cost', { cost_kopecks: 25000 }, admin);
+    const mgrSees = await as(db, 'authenticated', manager, () => q(db, 'select * from public.order_logistics_costs where order_id = $1', [r.order_id]));
+    expect(mgrSees).toHaveLength(0);
+    const mine = await as(db, 'authenticated', alice, () => q(db, 'select * from public.order_logistics_costs where order_id = $1', [r.order_id]));
+    expect(mine).toHaveLength(0);
+    await action(r.order_id!, 'set_logistics_cost', { cost_kopecks: null }, admin);
+    expect(await q(db, 'select * from public.order_logistics_costs where order_id = $1', [r.order_id])).toHaveLength(0);
   });
 
   it('отмена требует причины; при отсутствии товара — отмена без фиктивных платежей', async () => {
@@ -198,14 +208,12 @@ describe('статусы и workflow менеджера', () => {
     await expectDbError(action(r.order_id!, 'start_check'), 'INVALID_STATUS_TRANSITION');
   });
 
-  it('согласование в чате фиксируется явно и позволяет сразу подтвердить заказ', async () => {
+  it('наличие можно подтвердить сразу из новой заявки — минуя отдельный шаг проверки', async () => {
     const r = await create(orderPayload([{ variant_id: tee.variantId, quantity: 1, expected_unit_price_kopecks: 199000 }]));
-    await action(r.order_id!, 'start_check');
-    const item = await one<{ id: string }>(db, 'select id from public.order_items where order_id = $1', [r.order_id]);
-    const res = await action(r.order_id!, 'record_availability', {
-      items: [{ item_id: item.id, availability: 'confirmed' }], delivery_kopecks: 0, customer_agreed_in_chat: true,
-    });
-    expect(res.status).toBe('confirmed');
+    const res = await action(r.order_id!, 'record_availability', { items: [], delivery_kopecks: 0 });
+    expect(res.status).toBe('awaiting_payment');
+    const it = await one<{ availability: string }>(db, 'select availability from public.order_items where order_id = $1', [r.order_id]);
+    expect(it.availability).toBe('confirmed');
   });
 
   it('покупатель может отменить неоплаченную заявку до передачи поставщику', async () => {

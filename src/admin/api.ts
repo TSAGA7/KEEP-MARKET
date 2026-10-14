@@ -109,8 +109,9 @@ export async function adminOrderDetail(id: string) {
   const itemIds = ((items.data ?? []) as Array<{ id: string }>).map((x) => x.id);
   // Себестоимость видна только owner/admin (для менеджера RLS вернёт пустой список)
   const costs = itemIds.length ? await db().from('order_item_costs').select('order_item_id, purchase_price_kopecks').in('order_item_id', itemIds) : { data: [] };
+  const { data: logistics } = await db().from('order_logistics_costs').select('cost_kopecks').eq('order_id', id).maybeSingle();
   const { data: customer } = await db().from('profiles').select('id, telegram_id, username, first_name, last_name, bot_chat_id').eq('id', order.customer_id as string).maybeSingle();
-  return { order, items: check(items), history: check(hist), shipments: check(ship), payments: pays.data ?? [], costs: costs.data ?? [], customer };
+  return { order, items: check(items), history: check(hist), shipments: check(ship), payments: pays.data ?? [], costs: costs.data ?? [], logisticsCost: logistics ? Number((logistics as { cost_kopecks: number }).cost_kopecks) : null, customer };
 }
 
 export const orderAction = (orderId: string, action: string, payload: Record<string, unknown> = {}) =>

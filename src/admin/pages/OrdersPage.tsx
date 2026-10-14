@@ -1,4 +1,4 @@
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { db } from '@/lib/supabase';
 import { check } from '../api';
@@ -12,6 +12,7 @@ interface Row { id: string; number: string; status: OrderStatus; payment_status:
 
 export default function OrdersPage() {
   const [sp, setSp] = useSearchParams();
+  const navigate = useNavigate();
   const status = sp.get('status') ?? '';
   const term = sp.get('q') ?? '';
   const q = useQuery({
@@ -42,7 +43,8 @@ export default function OrdersPage() {
       {q.data && q.data.length > 0 ? (
         <Table head={['Номер', 'Статус', 'Оплата', 'Доставка', 'Сумма', 'Создан']}>
           {q.data.map((o) => (
-            <tr key={o.id} className="hover:bg-concrete/60">
+            <tr key={o.id} className="cursor-pointer hover:bg-concrete/60 active:bg-concrete"
+              onClick={(e) => { if (!(e.target as HTMLElement).closest('button, a')) navigate(`/admin/orders/${o.id}`); }}>
               <Td><Link to={`/admin/orders/${o.id}`} className="num font-semibold underline-offset-4 hover:underline">{o.number}</Link></Td>
               <Td><OrderStatusBadge status={o.status} staff /></Td>
               <Td><PaymentBadge status={o.payment_status} /></Td>

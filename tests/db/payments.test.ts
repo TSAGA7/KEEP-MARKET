@@ -17,7 +17,7 @@ async function confirmedOnlineOrder(): Promise<string> {
   const id = r.r.order_id;
   await action(id, 'start_check');
   const item = await one<{ id: string }>(db, 'select id from public.order_items where order_id = $1', [id]);
-  await action(id, 'record_availability', { items: [{ item_id: item.id, availability: 'confirmed' }], delivery_kopecks: 40000, customer_agreed_in_chat: true });
+  await action(id, 'record_availability', { items: [{ item_id: item.id, availability: 'confirmed' }], delivery_kopecks: 40000 });
   await action(id, 'set_payment_method', { payment_method: 'online' });
   return id;
 }
@@ -73,8 +73,8 @@ describe('платежи', () => {
 
     let o = await one<{ payment_status: string }>(db, 'select payment_status from public.orders where id = $1', [id]);
     expect(o.payment_status).toBe('awaiting_payment');
-    // Нельзя передать поставщику до оплаты (онлайн-сценарий)
-    await expectDbError(action(id, 'send_to_supplier'), 'PAYMENT_REQUIRED_BEFORE_SUPPLIER');
+    // Нельзя перевести к отправке до оплаты (онлайн-сценарий)
+    await expectDbError(action(id, 'await_shipment'), 'PAYMENT_REQUIRED_BEFORE_SUPPLIER');
 
     expect(await event('evt-1', `mock_${pay.payment_id}`, 'succeeded', 340000)).toBe('succeeded');
     expect(await event('evt-1', `mock_${pay.payment_id}`, 'succeeded', 340000)).toBe('duplicate');
@@ -84,7 +84,9 @@ describe('платежи', () => {
     expect(o.payment_status).toBe('paid');
     const evts = await q(db, 'select * from public.payment_events where payment_id = $1', [pay.payment_id]);
     expect(evts).toHaveLength(2);
-    expect((await action(id, 'send_to_supplier')).status).toBe('supplier_processing');
+    // Оплата получена — заказ сам перешёл в «Ожидает отправку»
+    const st = await one<{ status: string }>(db, 'select status from public.orders where id = $1', [id]);
+    expect(st.status).toBe('awaiting_shipment');
   });
 
   it('неуспешный платёж не меняет статус заказа на оплачен, можно повторить', async () => {
@@ -92,7 +94,7 @@ describe('платежи', () => {
     const pay = await preparePayment(id);
     expect(await event('evt-f1', `mock_${pay.payment_id}`, 'failed', 340000)).toBe('failed');
     const o = await one<{ payment_status: string; status: string }>(db, 'select payment_status, status from public.orders where id = $1', [id]);
-    expect(o).toEqual({ payment_status: 'unpaid', status: 'confirmed' });
+    expect(o).toEqual({ payment_status: 'unpaid', status: 'awaiting_payment' });
     const retry = await preparePayment(id);
     expect(retry.payment_id).not.toBe(pay.payment_id);
   });

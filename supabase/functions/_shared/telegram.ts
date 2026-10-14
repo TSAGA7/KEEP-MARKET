@@ -88,11 +88,10 @@ export async function notifyManagers(text: string, orderId?: string) {
 }
 
 const CUSTOMER_TEXT: Record<string, (n: string, extra: Record<string, string>) => string> = {
-  checking: (n) => `Заявка <b>${n}</b>: менеджер проверяет наличие у поставщика.`,
-  needs_confirmation: (n) => `Заявка <b>${n}</b>: условия обновлены (наличие, цена или доставка). Пожалуйста, проверьте и подтвердите заказ.`,
-  confirmed: (n) => `Заказ <b>${n}</b> подтверждён. Менеджер согласует способ оплаты и сроки.`,
+  checking: (n) => `Заказ <b>${n}</b>: проверка наличия.`,
+  awaiting_payment: (n) => `Заказ <b>${n}</b> подтверждён и ожидает оплату. Менеджер напишет, как оплатить.`,
   payment_available: (n) => `Для заказа <b>${n}</b> доступна онлайн-оплата.`,
-  supplier_processing: (n) => `Заказ <b>${n}</b> передан поставщику.`,
+  awaiting_shipment: (n) => `Заказ <b>${n}</b> ожидает отправку.`,
   shipped: (n, x) => `Заказ <b>${n}</b> отправлен.${x.tracking ? ` Трек-номер: <code>${x.tracking}</code>` : ''}`,
   tracking: (n, x) => `Трек-номер заказа <b>${n}</b>: <code>${x.tracking ?? ''}</code>`,
   delivered: (n) => `Заказ <b>${n}</b> доставлен. Спасибо, что выбрали KEEP MARKET!`,

@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { callFunction, db, imageUrl } from '@/lib/supabase';
 import { useSession } from '@/lib/session';
+import { haptic } from '@/lib/telegram';
 import { BLOCKER_LABEL, PRODUCT_STATUS_LABEL, check, errText, getAdminProduct, rpc, uploadProductImage, type AdminImage, type AdminProduct, type AdminVariant } from '../api';
 import { AdminPage, KV, Section, Table, Td } from '../ui';
 import { Badge, Button, ErrorState, Field, Input, Notice, Price, Select, Sheet, Skeleton, Textarea } from '@/components/ui';
@@ -294,6 +295,84 @@ function ImagesSection({ productId, images, canEdit, onChange }: { productId: st
       await onChange();
     } catch (e) { toast(errText(e), 'error'); }
   };
+  // Перетаскивание: удержать фото ~0,3 с, затем вести пальцем — остальные фото раздвигаются
+  const [dragOrder, setDragOrder] = useState<string[] | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const dragOrderRef = useRef<string[] | null>(null);
+  const draggingRef = useRef(false);
+  const hold = useRef<{ timer: number; x: number; y: number; id: string } | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // Пока фото «в руке», страница не прокручивается
+    const el = gridRef.current;
+    if (!el) return;
+    const stop = (e: TouchEvent) => { if (draggingRef.current) e.preventDefault(); };
+    el.addEventListener('touchmove', stop, { passive: false });
+    return () => el.removeEventListener('touchmove', stop);
+  }, []);
+  const setOrderBoth = (o: string[] | null) => { dragOrderRef.current = o; setDragOrder(o); };
+  const onDragStart = (e: ReactPointerEvent<HTMLDivElement>, id: string) => {
+    if (!canEdit || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    const el = e.currentTarget;
+    const pointerId = e.pointerId;
+    if (hold.current) window.clearTimeout(hold.current.timer);
+    hold.current = {
+      x: e.clientX, y: e.clientY, id,
+      timer: window.setTimeout(() => {
+        draggingRef.current = true;
+        setDragId(id);
+        setOrderBoth(images.map((i) => i.id));
+        haptic('select');
+        try { el.setPointerCapture(pointerId); } catch { /* не критично */ }
+      }, e.pointerType === 'mouse' ? 150 : 300),
+    };
+  };
+  const onDragMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const h = hold.current;
+    if (!h) return;
+    if (!draggingRef.current) {
+      // Палец сдвинулся до срабатывания удержания — это прокрутка страницы
+      if (Math.hypot(e.clientX - h.x, e.clientY - h.y) > 8) { window.clearTimeout(h.timer); hold.current = null; }
+      return;
+    }
+    e.preventDefault();
+    const target = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest<HTMLElement>('[data-img-id]');
+    const tid = target?.dataset.imgId;
+    const cur = dragOrderRef.current;
+    if (!tid || tid === h.id || !cur) return;
+    const from = cur.indexOf(h.id);
+    const to = cur.indexOf(tid);
+    if (from < 0 || to < 0) return;
+    const next = [...cur];
+    next.splice(from, 1);
+    next.splice(to, 0, h.id);
+    setOrderBoth(next);
+    haptic('light');
+  };
+  const onDragEnd = async () => {
+    const h = hold.current;
+    if (h) window.clearTimeout(h.timer);
+    hold.current = null;
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    setDragId(null);
+    const final = dragOrderRef.current;
+    if (!final || final.every((id, i) => images[i]?.id === id)) { setOrderBoth(null); return; }
+    try {
+      for (const [i, id] of final.entries()) {
+        const img = images.find((x) => x.id === id);
+        if (img && img.sort_order !== i) check(await db().from('product_images').update({ sort_order: i }).eq('id', id));
+      }
+      await onChange();
+      toast(final[0] !== images[0]?.id ? 'Порядок сохранён, обложка обновлена' : 'Порядок сохранён', 'success');
+    } catch (e) {
+      toast(errText(e), 'error');
+    } finally {
+      setOrderBoth(null);
+    }
+  };
+  const shown = dragOrder ? dragOrder.map((id) => images.find((i) => i.id === id)).filter((x): x is AdminImage => !!x) : images;
+
   const remove = async (img: AdminImage) => {
     if (!window.confirm('Удалить фото?')) return;
     try {
@@ -324,15 +403,20 @@ function ImagesSection({ productId, images, canEdit, onChange }: { productId: st
       </div>
     ) : null}>
       {images.length === 0 ? <p className="text-sm text-graphite">Фото нет. JPEG, PNG или WebP до 5 МБ; первое фото — обложка.</p> : null}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-        {images.map((img, idx) => {
+      {canEdit && images.length > 1 ? <p className="mb-2 text-sm text-graphite">Чтобы поменять порядок, удерживайте фото и перетащите его. Первое фото — обложка.</p> : null}
+      <div ref={gridRef} className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+        {shown.map((img, idx) => {
           const showingProcessed = !!img.processed_storage_path && img.storage_path === img.processed_storage_path;
           const busy = img.processing_status === 'pending' || img.processing_status === 'processing';
           const src = imageUrl(img.url ?? (img.storage_path ? `storage:${img.storage_path}` : null));
           return (
             <div key={img.id} className="space-y-1">
-              <div className="relative aspect-[4/5] bg-concrete">
-                {src ? <img src={src} alt={img.alt ?? ''} className="h-full w-full object-cover" /> : null}
+              <div data-img-id={img.id}
+                className={`relative aspect-[4/5] select-none bg-concrete transition-transform duration-150 [-webkit-touch-callout:none] ${dragId === img.id ? 'z-10 scale-105 shadow-2xl ring-2 ring-ink' : ''} ${dragId && dragId !== img.id ? 'opacity-80' : ''}`}
+                onPointerDown={(e) => onDragStart(e, img.id)} onPointerMove={onDragMove}
+                onPointerUp={() => void onDragEnd()} onPointerCancel={() => void onDragEnd()}
+                onContextMenu={(e) => { if (canEdit) e.preventDefault(); }}>
+                {src ? <img src={src} alt={img.alt ?? ''} draggable={false} className="pointer-events-none h-full w-full object-cover" /> : null}
                 {busy ? <div className="absolute inset-x-0 bottom-0 bg-ink/75 px-2 py-1 text-xs text-paper">{PROCESSING_LABEL[img.processing_status]}</div> : null}
               </div>
               {idx === 0 ? <p className="text-xs font-medium">Обложка</p> : null}

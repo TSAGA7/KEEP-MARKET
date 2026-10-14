@@ -47,9 +47,9 @@ export default function OrderDetailPage() {
 
   const { order, items, history, shipments, payments, contact } = q.data;
   const onlineEnabled = settings.data?.online_payment_enabled === true;
-  const canPay = order.payment_method === 'online' && ['confirmed', 'supplier_processing', 'ready_to_ship'].includes(order.status)
+  const canPay = order.payment_method === 'online' && ['awaiting_payment', 'awaiting_shipment'].includes(order.status)
     && ['unpaid', 'awaiting_payment'].includes(order.payment_status) && order.delivery_kopecks !== null;
-  const canCancel = ['new', 'checking_availability', 'awaiting_customer_confirmation', 'confirmed'].includes(order.status) && order.payment_status === 'unpaid';
+  const canCancel = ['new', 'checking_availability', 'awaiting_payment'].includes(order.status) && order.payment_status === 'unpaid';
   const testPayment = payments.some((p) => p.is_test);
   const manager = typeof settings.data?.manager_contact_url === 'string' ? settings.data.manager_contact_url : null;
   const bot = typeof settings.data?.telegram_bot_username === 'string' ? settings.data.telegram_bot_username : null;
@@ -87,16 +87,11 @@ export default function OrderDetailPage() {
         right={<OrderStatusBadge status={order.status} />} />
 
       <div className="space-y-3 px-4">
-        {order.status === 'awaiting_customer_confirmation' ? (
-          <Notice tone="warn">
-            <p className="font-medium">Проверьте обновлённые условия</p>
-            <p className="mt-1">Менеджер уточнил наличие, цену или доставку. Если всё устраивает — подтвердите заказ.</p>
-            {order.agreed_terms?.eta_text ? <p className="mt-1">Срок: {order.agreed_terms.eta_text}</p> : null}
-            <Button className="mt-3" loading={busy === 'confirm'} onClick={() => run('confirm', () => orderAction(order.id, 'customer_confirm'), 'Заказ подтверждён')}>Подтвердить заказ</Button>
-          </Notice>
+        {order.status === 'awaiting_payment' && order.payment_method !== 'online' ? (
+          <Notice>Заказ подтверждён и ожидает оплату. Менеджер напишет вам в Telegram, как оплатить.{order.agreed_terms?.eta_text ? ` Срок: ${order.agreed_terms.eta_text}.` : ''}</Notice>
         ) : null}
         {order.status === 'new' || order.status === 'checking_availability' ? (
-          <Notice>Менеджер проверяет наличие у поставщика. Оплата на этом этапе не производится.</Notice>
+          <Notice>Заказ ожидает подтверждения менеджера. Оплата на этом этапе не производится.</Notice>
         ) : null}
         {returnedFromPayment && order.payment_status !== 'paid' ? (
           <Notice tone="warn">Проверяем оплату. Статус обновится, когда платёжная система подтвердит платёж — обычно это занимает до минуты.</Notice>

@@ -17,12 +17,10 @@ import { maskPhone } from '@shared/log';
 
 const ACTION_LABEL: Partial<Record<StaffAction, string>> = {
   start_check: 'Начать проверку наличия',
-  record_availability: 'Зафиксировать результат проверки',
-  mark_customer_agreed: 'Покупатель согласовал в чате',
-  set_payment_method: 'Согласовать способ оплаты',
-  send_to_supplier: 'Передать поставщику',
-  ready_to_ship: 'Готов к отправке',
-  ship: 'Отправить и внести трек-номер',
+  record_availability: 'В наличии → ожидает оплату',
+  set_payment_method: 'Способ оплаты',
+  await_shipment: 'Оплачено → ожидает отправку',
+  ship: 'Отправить',
   set_tracking: 'Изменить трек-номер',
   deliver: 'Отметить доставку',
   cancel: 'Отменить заявку',
@@ -97,16 +95,15 @@ export default function OrderPage() {
           <Section title="Действия">
             <div className="flex flex-wrap gap-2">
               {actions.map((a) => {
-                const instant = a === 'start_check' || a === 'ready_to_ship' || a === 'deliver' || a === 'send_to_supplier';
+                const instant = a === 'start_check' || a === 'deliver' || a === 'await_shipment';
                 return (
                   <Button key={a} size="sm" variant={a === 'cancel' ? 'danger' : a === actions[0] ? 'primary' : 'secondary'} loading={busy && instant}
                     onClick={() => (instant ? act(a) : setDialog(a))}>{ACTION_LABEL[a] ?? a}</Button>
                 );
               })}
             </div>
-            {order.status === 'confirmed' && !order.payment_method ? <p className="mt-2 text-sm text-amber">Перед передачей поставщику согласуйте способ оплаты.</p> : null}
-            {order.payment_method === 'online' && order.payment_status !== 'paid' && order.status === 'confirmed' ? (
-              <p className="mt-2 text-sm text-graphite">Онлайн-оплата: заказ можно передать поставщику после подтверждённой оплаты (настройка магазина).</p>
+            {order.status === 'awaiting_payment' ? (
+              <p className="mt-2 text-sm text-graphite">Когда деньги придут, нажмите «Оплачено → ожидает отправку» или зафиксируйте оплату в разделе «Платежи» — статус сменится сам.</p>
             ) : null}
           </Section>
 
@@ -121,9 +118,10 @@ export default function OrderPage() {
               <KV k="Доставка">{order.delivery_kopecks === null ? 'не согласована' : <Price kopecks={order.delivery_kopecks} />}</KV>
               <KV k="Итого"><b><Price kopecks={order.total_kopecks} /></b></KV>
             </dl>
+            {s.isAdmin ? <LogisticsCost order={order} current={q.data.logisticsCost} busy={busy} act={act} costTotal={hasCosts ? costTotal : null} /> : null}
           </Section>
 
-          {['confirmed', 'supplier_processing', 'ready_to_ship'].includes(order.status) ? (
+          {['awaiting_payment', 'awaiting_shipment'].includes(order.status) ? (
             <SupplierHandoff order={order} items={items} />
           ) : null}
 
@@ -139,7 +137,7 @@ export default function OrderPage() {
                 ))}
               </Table>
             )}
-            {s.isAdmin && order.payment_method && order.payment_method !== 'online' && order.payment_status !== 'paid' && !['new', 'checking_availability', 'awaiting_customer_confirmation', 'cancelled'].includes(order.status) ? (
+            {s.isAdmin && order.payment_method && order.payment_method !== 'online' && order.payment_status !== 'paid' && !['new', 'cancelled'].includes(order.status) ? (
               <Button size="sm" variant="secondary" className="mt-3" onClick={() => setDialog('offline')}>Зафиксировать полученную оплату</Button>
             ) : null}
           </Section>
@@ -200,7 +198,7 @@ export default function OrderPage() {
   );
 }
 
-/** Текст для поставщика: только то, что нужно для сборки и отправки (без истории покупок и прочих данных клиента) */
+/** Текст для сборки/отправки: только то, что нужно для сборки и отправки (без истории покупок и прочих данных клиента) */
 function SupplierHandoff({ order, items }: { order: Order; items: OrderItem[] }) {
   const toast = useToast();
   const [text, setText] = useState<string | null>(null);
@@ -224,14 +222,14 @@ function SupplierHandoff({ order, items }: { order: Order; items: OrderItem[] })
     try { await navigator.clipboard.writeText(text); toast('Скопировано', 'success'); } catch { toast('Скопируйте текст вручную', 'info'); }
   };
   return (
-    <Section title="Передача поставщику">
-      <p className="mb-3 text-sm text-graphite">Поставщик получает только состав заказа и данные для отправки. Доступа к базе покупателей у него нет.</p>
+    <Section title="Текст для сборки и отправки">
+      <p className="mb-3 text-sm text-graphite">Только состав заказа и данные для отправки — без истории покупок. Покупатель этот блок не видит.</p>
       {text ? (
         <>
           <Textarea readOnly value={text} rows={8} className="font-sans" />
           <Button size="sm" className="mt-2" onClick={copy}>Скопировать</Button>
         </>
-      ) : <Button size="sm" variant="secondary" onClick={build}>Сформировать текст для поставщика</Button>}
+      ) : <Button size="sm" variant="secondary" onClick={build}>Сформировать текст</Button>}
     </Section>
   );
 }
@@ -245,7 +243,7 @@ function ActionDialogs({ dialog, close, busy, act, order, items, payments, onRef
   const [avail, setAvail] = useState<Record<string, { availability: ItemAvailability; note: string; price: string; priceReason: string }>>({});
   const [delivery, setDelivery] = useState('');
   const [eta, setEta] = useState('');
-  const [agreedInChat, setAgreedInChat] = useState(false);
+  const [shipCost, setShipCost] = useState('');
   const [method, setMethod] = useState('manual_transfer');
   const [carrier, setCarrier] = useState('cdek');
   const [tracking, setTracking] = useState('');
@@ -273,10 +271,10 @@ function ActionDialogs({ dialog, close, busy, act, order, items, payments, onRef
             ...(p !== null && p !== it.original_unit_price_kopecks ? { new_unit_price_kopecks: p, price_change_reason: st.priceReason } : {}) };
         });
         const d = delivery ? parseRublesToKopecks(delivery) : null;
-        return { items: out, ...(d !== null ? { delivery_kopecks: d } : {}), eta_text: eta || undefined, customer_agreed_in_chat: agreedInChat };
+        return { items: out, ...(d !== null ? { delivery_kopecks: d } : {}), eta_text: eta || undefined };
       };
       return (
-        <Sheet open onClose={close} title="Результат проверки наличия" footer={footer('Сохранить результат', () => act('record_availability', payload()))}>
+        <Sheet open onClose={close} title="Результат проверки наличия" footer={footer('Товар в наличии → ожидает оплату', () => act('record_availability', payload()))}>
           <div className="space-y-5">
             {items.map((it) => {
               const st = itemState(it);
@@ -294,22 +292,15 @@ function ActionDialogs({ dialog, close, busy, act, order, items, payments, onRef
                 </div>
               );
             })}
-            <Field label="Стоимость доставки, ₽" optional hint="Если указать — покупатель должен подтвердить условия">
+            <Field label="Стоимость доставки для покупателя, ₽" optional hint="Прибавится к сумме заказа">
               {(fid) => <Input id={fid} inputMode="decimal" value={delivery} onChange={(e) => setDelivery(e.target.value)} />}
             </Field>
-            <Field label="Срок поставки и доставки" optional>{(fid) => <Input id={fid} placeholder="Например, 3–5 рабочих дней" value={eta} onChange={(e) => setEta(e.target.value)} />}</Field>
-            <Checkbox checked={agreedInChat} onChange={setAgreedInChat}>Покупатель уже согласовал эти условия в чате (подтвердить заказ сразу)</Checkbox>
-            <p className="text-sm text-graphite">Если позиции нет, а другие доступны — заказ пересчитается без неё, деньги не списываются. Если недоступно всё — отмените заявку.</p>
+            <Field label="Срок доставки" optional>{(fid) => <Input id={fid} placeholder="Например, 3–5 рабочих дней" value={eta} onChange={(e) => setEta(e.target.value)} />}</Field>
+            <p className="text-sm text-graphite">Если позиции нет, а другие есть — заказ пересчитается без неё. Если нет ничего — отмените заявку.</p>
           </div>
         </Sheet>
       );
     }
-    case 'mark_customer_agreed':
-      return (
-        <Sheet open onClose={close} title="Покупатель согласовал условия" footer={footer('Подтвердить заказ', () => act('mark_customer_agreed', { reason }))}>
-          <Textarea placeholder="Как и когда покупатель подтвердил (например, «в чате бота 13.10 в 12:40»)" value={reason} onChange={(e) => setReason(e.target.value)} />
-        </Sheet>
-      );
     case 'set_payment_method':
       return (
         <Sheet open onClose={close} title="Способ оплаты" footer={footer('Сохранить', () => act('set_payment_method', { payment_method: method }))}>
@@ -323,7 +314,12 @@ function ActionDialogs({ dialog, close, busy, act, order, items, payments, onRef
     case 'set_tracking':
       return (
         <Sheet open onClose={close} title={dialog === 'ship' ? 'Отправка' : 'Трек-номер'}
-          footer={footer('Сохранить', () => act(dialog, dialog === 'ship' ? { carrier, tracking_number: tracking } : { tracking_number: tracking }))}>
+          footer={footer('Сохранить', () => {
+            if (dialog !== 'ship') { void act(dialog, { tracking_number: tracking }); return; }
+            const cost = shipCost.trim() ? parseRublesToKopecks(shipCost) : null;
+            if (shipCost.trim() && cost === null) { toast('Некорректная сумма расходов', 'error'); return; }
+            void act('ship', { carrier, ...(tracking ? { tracking_number: tracking } : {}), ...(cost !== null ? { cost_kopecks: cost } : {}) });
+          })}>
           <div className="space-y-3">
             {dialog === 'ship' ? (
               <Select value={carrier} onChange={(e) => setCarrier(e.target.value)} aria-label="Перевозчик">
@@ -331,7 +327,12 @@ function ActionDialogs({ dialog, close, busy, act, order, items, payments, onRef
                 <option value="yandex">Яндекс Доставка</option><option value="keep_courier">Курьер KEEP MARKET</option><option value="other">Другое</option>
               </Select>
             ) : null}
-            <Input placeholder="Трек-номер (латиница, цифры, дефис)" value={tracking} onChange={(e) => setTracking(e.target.value.trim())} />
+            <Input placeholder={dialog === 'ship' ? 'Трек-номер — необязательно' : 'Трек-номер (латиница, цифры, дефис)'} value={tracking} onChange={(e) => setTracking(e.target.value.trim())} />
+            {dialog === 'ship' && isAdmin ? (
+              <Field label="Наши расходы на доставку (курьер), ₽" optional hint="Покупатель не видит. Учитывается в панели управления">
+                {(fid) => <Input id={fid} inputMode="decimal" placeholder="Например, 300" value={shipCost} onChange={(e) => setShipCost(e.target.value)} />}
+              </Field>
+            ) : null}
             <p className="text-sm text-graphite">Покупатель получит уведомление в боте, если он его подключил.</p>
           </div>
         </Sheet>
@@ -351,7 +352,7 @@ function ActionDialogs({ dialog, close, busy, act, order, items, payments, onRef
         <Sheet open onClose={close} title="Решение проблемы" footer={footer('Вернуть в работу', () => act('resolve_issue', { target_status: target, reason }))}>
           <div className="space-y-3">
             <Select value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Вернуть в статус">
-              {(['checking_availability', 'awaiting_customer_confirmation', 'confirmed', 'supplier_processing', 'ready_to_ship', 'shipped', 'delivered'] as const).map((st) =>
+              {(['checking_availability', 'awaiting_payment', 'awaiting_shipment', 'shipped', 'delivered'] as const).map((st) =>
                 <option key={st} value={st}>{ORDER_STATUS_LABEL_STAFF[st]}</option>)}
             </Select>
             <Textarea placeholder="Как решили" value={reason} onChange={(e) => setReason(e.target.value)} />
@@ -409,4 +410,31 @@ function ActionDialogs({ dialog, close, busy, act, order, items, payments, onRef
     default:
       return null;
   }
+}
+
+/** Расходы магазина на доставку (курьер и т.п.) — необязательное поле, только для владельца/админа */
+function LogisticsCost({ order, current, busy, act, costTotal }: { order: Order; current: number | null; busy: boolean; act: (a: StaffAction, p?: Record<string, unknown>) => Promise<void>; costTotal: number | null }) {
+  const toast = useToast();
+  const [val, setVal] = useState(kopecksToRublesInput(current));
+  const save = () => {
+    const raw = val.trim();
+    const k = raw ? parseRublesToKopecks(raw) : null;
+    if (raw && k === null) { toast('Некорректная сумма', 'error'); return; }
+    if (k === current) return;
+    void act('set_logistics_cost', { cost_kopecks: k });
+  };
+  const margin = costTotal !== null ? order.items_total_kopecks - order.discount_kopecks - costTotal - (current ?? 0) : null;
+  return (
+    <div className="mt-4 max-w-sm border-t border-line pt-3">
+      <Field label="Расходы на доставку (курьер), ₽" optional hint="Покупатель не видит. Вычитается из разницы с закупкой">
+        {(fid) => (
+          <div className="flex gap-2">
+            <Input id={fid} inputMode="decimal" placeholder="Например, 250" value={val} onChange={(e) => setVal(e.target.value)} />
+            <Button size="sm" variant="secondary" loading={busy} onClick={save}>Сохранить</Button>
+          </div>
+        )}
+      </Field>
+      {margin !== null ? <p className="mt-2 text-sm text-graphite">Итог по заказу после закупки и доставки: <Price kopecks={margin} /></p> : null}
+    </div>
+  );
 }

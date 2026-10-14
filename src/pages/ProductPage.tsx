@@ -78,13 +78,25 @@ export default function ProductPage() {
   const returnPolicy = typeof settings.data?.return_policy === 'string' ? settings.data.return_policy : null;
   const missingChoice = (needsColor && !color) ? 'Выберите цвет' : (needsSize && !size) ? 'Выберите размер' : null;
 
+  // Количество 0 или повторный тап по выбранному размеру «сбрасывают» выбор
+  const changeQty = (v: number) => {
+    if (v <= 0) {
+      haptic('select');
+      if (needsSize) { setSize(null); setQty(1); return; }
+      if (needsColor) { setColor(colors.length === 1 ? color : null); }
+      setQty(0);
+      return;
+    }
+    setQty(v);
+  };
+
   const addToCart = () => {
     if (!selected) {
       setShowErrors(true);
       haptic('error');
       return;
     }
-    if (selected.stock_state === 'out_of_stock') return;
+    if (selected.stock_state === 'out_of_stock' || qty < 1) return;
     cart.add({
       variantId: selected.id, productId: product.id, slug: product.slug, title: product.title,
       size: selected.size, color: selected.color, imageRef: images[0]?.image_ref ?? product.cover_ref,
@@ -122,10 +134,7 @@ export default function ProductPage() {
         <div className="mt-4">
           <span key={price} className="hang-tag animate-tag text-md font-semibold"><Price kopecks={price} /></span>
         </div>
-        <StockLine state={selected?.stock_state ?? product.stock_state} confirmedAt={selected?.stock_confirmed_at ?? product.stock_confirmed_at} className="mt-3" />
-        {(selected?.stock_state ?? product.stock_state) === 'needs_confirmation' ? (
-          <p className="mt-3 text-sm text-graphite">Остаток давно не подтверждался поставщиком. Заявку можно оформить — менеджер проверит наличие до оплаты.</p>
-        ) : null}
+        <StockLine state={selected?.stock_state ?? product.stock_state} className="mt-3" />
 
         {needsColor ? (
           <fieldset className="mt-6">
@@ -148,7 +157,7 @@ export default function ProductPage() {
                 const unavailable = !variant || variant.stock_state === 'out_of_stock';
                 return (
                   <Chip key={s} active={size === s} disabled={unavailable} title={unavailable ? 'Нет в наличии' : undefined}
-                    onClick={() => { setSize(s); haptic('select'); }}>{s}</Chip>
+                    onClick={() => { setSize(size === s ? null : s); haptic('select'); }}>{s}</Chip>
                 );
               })}
             </div>
@@ -159,7 +168,7 @@ export default function ProductPage() {
 
         {selected && !soldOut ? (
           <div className="mt-5 flex items-center gap-3">
-            <Stepper value={qty} min={selected.min_qty} max={maxQty} onChange={setQty} label="Количество" />
+            <Stepper value={qty} min={0} max={maxQty} onChange={changeQty} label="Количество" />
             <span className="text-sm text-graphite">{selected.stock_qty <= 3 ? `осталось ${selected.stock_qty} шт.` : ''}</span>
           </div>
         ) : null}
@@ -179,7 +188,7 @@ export default function ProductPage() {
               </div>
             </Details>
           ) : null}
-          <Details title="Доставка">{deliveryInfo ?? 'Способ и стоимость доставки менеджер согласует после проверки наличия.'}</Details>
+          <Details title="Доставка">{deliveryInfo ?? 'Способ и стоимость доставки менеджер сообщит после подтверждения заказа.'}</Details>
           <Details title="Возврат">{returnPolicy ?? 'Условия возврата уточняйте у менеджера.'}</Details>
           <div className="flex h-14 items-center justify-between text-sm text-graphite">
             <span>Артикул</span><span className="num text-ink">{selected?.sku ?? product.sku}</span>
@@ -197,12 +206,13 @@ export default function ProductPage() {
       <div className="sticky z-30 border-t border-line bg-paper px-4 py-3" style={{ bottom: 'calc(var(--nav-h) + var(--safe-bottom))' }}>
         {soldOut ? (
           <Button block size="lg" variant="secondary" disabled>Нет в наличии</Button>
-        ) : (
-          <Button block size="lg" onClick={addToCart} className={selected ? 'justify-between' : undefined} aria-describedby={missingChoice ? 'choice-hint' : undefined}>
-            {selected ? <><span>Добавить в корзину</span><Price kopecks={price * qty} /></> : missingChoice ?? 'Добавить в корзину'}
+        ) : selected && qty > 0 ? (
+          <Button block size="lg" onClick={addToCart} className="justify-between">
+            <span>Добавить в корзину</span><Price kopecks={price * qty} />
           </Button>
+        ) : (
+          <p className="py-2 text-center text-sm text-graphite">{missingChoice ?? 'Укажите количество'}</p>
         )}
-        {missingChoice ? <span id="choice-hint" className="sr-only">{missingChoice}</span> : null}
         {session.status === 'guest' && !session.insideTelegram ? (
           <p className="mt-2 text-center text-xs text-graphite">Оформить заказ можно в Telegram-приложении KEEP MARKET</p>
         ) : null}

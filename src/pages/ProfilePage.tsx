@@ -10,6 +10,7 @@ import { IconBox, IconChat, IconChevronRight, IconSend, IconShield, IconStar } f
 import type { ReactNode } from 'react';
 
 const REVIEWS_CHANNEL_URL = 'https://t.me/km_otzv';
+const MANAGER_URL_DEFAULT = 'https://t.me/keep_admin';
 
 export function TelegramRequired() {
   const s = useSession();
@@ -40,6 +41,8 @@ export default function ProfilePage() {
   const settings = useQuery({ queryKey: ['settings'], queryFn: getPublicSettings });
   const bot = typeof settings.data?.telegram_bot_username === 'string' ? settings.data.telegram_bot_username : null;
   const channel = typeof settings.data?.telegram_channel_url === 'string' ? settings.data.telegram_channel_url : null;
+  const managerSetting = typeof settings.data?.manager_contact_url === 'string' ? settings.data.manager_contact_url : null;
+  const managerUrl = managerSetting && /^https:\/\/t\.me\/\w{4,64}$/.test(managerSetting) ? managerSetting : MANAGER_URL_DEFAULT;
   const hours = typeof settings.data?.support_hours === 'string' ? settings.data.support_hours : null;
   const p = s.profile;
 
@@ -66,6 +69,9 @@ export default function ProfilePage() {
 
       <ul className="divide-y divide-line border-y border-line">
         <Row to="/orders" icon={<IconBox />}>Мои заказы</Row>
+        <Row onClick={() => openTelegramLink(managerUrl)} icon={<IconChat />}>
+          Написать менеджеру <span className="text-graphite">@{managerUrl.replace('https://t.me/', '')}</span>
+        </Row>
         {bot ? <Row onClick={() => openTelegramLink(`https://t.me/${bot}`)} icon={<IconChat />}>Поддержка и вопросы по заказу</Row> : null}
         {channel ? <Row onClick={() => openTelegramLink(channel)} icon={<IconSend />}>Канал KEEP MARKET</Row> : null}
         <Row onClick={() => openTelegramLink(REVIEWS_CHANNEL_URL)} icon={<IconStar />}>Отзывы</Row>

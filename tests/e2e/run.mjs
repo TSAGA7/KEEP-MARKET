@@ -1,6 +1,6 @@
 // E2E-сценарий в настоящем браузере (Chromium, мобильный экран 390×844):
 // покупатель: главная → каталог → товар → корзина → оформление → заявка без оплаты → мои заказы
-// сотрудник: админка → заявка → проверка наличия → согласование → передача поставщику → отправка
+// сотрудник: админка → заявка → проверка наличия → ожидает оплату → ожидает отправку → отправка
 // Запуск: npm run test:e2e  (нужны Playwright и Chromium; переменная E2E_SHOTS — куда сохранять скриншоты)
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
@@ -69,10 +69,18 @@ async function main() {
 
     await p.getByRole('link', { name: /Худи из плотного футера/ }).first().click();
     await p.getByRole('heading', { name: 'Худи из плотного футера' }).waitFor();
-    await p.getByRole('button', { name: 'Выберите цвет' }).click();
     if (!(await p.getByText('Выберите цвет').first().isVisible())) fail('нет подсказки о выборе варианта');
+    if (await p.getByRole('button', { name: /Добавить в корзину/ }).count()) fail('кнопка корзины видна без выбора варианта');
     await p.getByRole('button', { name: 'Чёрный' }).click();
     await p.getByRole('button', { name: 'XL' }).isDisabled().then((d) => { if (!d) fail('XL (нет в наличии) должен быть недоступен'); });
+    await p.getByRole('button', { name: 'M', exact: true }).click();
+    // Повторный тап по размеру снимает выбор, кнопка корзины исчезает
+    await p.getByRole('button', { name: 'M', exact: true }).click();
+    if (await p.getByRole('button', { name: /Добавить в корзину/ }).count()) fail('повторный тап по размеру не снял выбор');
+    await p.getByRole('button', { name: 'M', exact: true }).click();
+    // Количество до нуля тоже снимает выбор
+    await p.getByRole('button', { name: 'Меньше' }).click();
+    if (await p.getByRole('button', { name: /Добавить в корзину/ }).count()) fail('количество 0 не сняло выбор');
     await p.getByRole('button', { name: 'M', exact: true }).click();
     await p.waitForTimeout(500);
     await shot(p, '03-product');
@@ -124,7 +132,8 @@ async function main() {
     const orderId = orderRow.rows[0].id;
 
     await p.getByRole('button', { name: 'Открыть заявку' }).click();
-    await p.getByText('Менеджер проверяет наличие у поставщика').waitFor();
+    await p.getByText('Заказ ожидает подтверждения менеджера').waitFor();
+    if (await p.getByText(/поставщик/i).count()) fail('покупатель не должен видеть упоминаний поставщика');
     await shot(p, '07-order-customer', true);
 
     // ---------------- Владелец / менеджер ----------------
@@ -136,39 +145,40 @@ async function main() {
 
     await a.goto(`${BASE}admin/orders/${orderId}`);
     await a.getByRole('button', { name: 'Начать проверку наличия' }).click();
-    await a.getByRole('button', { name: 'Зафиксировать результат проверки' }).waitFor();
+    await a.getByRole('button', { name: 'В наличии → ожидает оплату' }).waitFor();
     await a.getByRole('button', { name: 'Показать контакты получателя' }).click();
     await a.getByText('+79161234567').waitFor();
-    await a.getByRole('button', { name: 'Зафиксировать результат проверки' }).click();
+    await a.getByRole('button', { name: 'В наличии → ожидает оплату' }).click();
     const selects = a.getByRole('dialog').getByLabel('Наличие');
     await selects.nth(1).selectOption('unavailable');
-    await a.getByRole('dialog').getByLabel('Стоимость доставки, ₽').fill('350');
+    await a.getByRole('dialog').getByLabel('Стоимость доставки для покупателя, ₽').fill('350');
     await shot(a, '09-admin-availability');
-    await a.getByRole('button', { name: 'Сохранить результат' }).click();
-    await a.getByText(/Готово: Ждём покупателя/).waitFor();
+    await a.getByRole('dialog').getByRole('button', { name: 'Товар в наличии → ожидает оплату' }).click();
+    await a.getByText(/Готово: Ожидает оплату/).waitFor();
     await a.waitForTimeout(300);
     await shot(a, '10-admin-order', true);
 
-    // Покупатель подтверждает изменённые условия
     await p.reload();
-    await p.getByRole('button', { name: 'Подтвердить заказ' }).click();
-    await p.getByText('Заказ подтверждён').first().waitFor();
-    await shot(p, '11-order-confirmed', true);
+    await p.getByText('Заказ подтверждён и ожидает оплату').first().waitFor();
+    await shot(p, '11-order-awaiting-payment', true);
 
-    // Сотрудник: оплата при получении → поставщик → готов → отправка
+    // Сотрудник: оплата при получении → ожидает отправку → отправлено (с расходами на курьера)
     await a.reload();
-    await a.getByRole('button', { name: 'Согласовать способ оплаты' }).click();
+    await a.getByRole('button', { name: 'Способ оплаты' }).click();
     await a.getByRole('dialog').getByRole('combobox').selectOption('cash_on_delivery');
     await a.getByRole('dialog').getByRole('button', { name: 'Сохранить' }).click();
     await a.getByText(/Готово/).first().waitFor();
     await a.waitForTimeout(300);
-    await a.getByRole('button', { name: 'Передать поставщику' }).click();
-    await a.getByRole('button', { name: 'Готов к отправке' }).waitFor();
-    await a.getByRole('button', { name: 'Готов к отправке' }).click();
-    await a.getByRole('button', { name: 'Отправить и внести трек-номер' }).click();
+    await a.getByRole('button', { name: 'Оплачено → ожидает отправку' }).click();
+    await a.getByRole('button', { name: 'Отправить', exact: true }).waitFor();
+    await a.getByRole('button', { name: 'Отправить', exact: true }).click();
     await a.getByRole('dialog').getByPlaceholder(/Трек-номер/).fill('1234567890');
+    await a.getByRole('dialog').getByLabel(/Наши расходы на доставку/).fill('300');
     await a.getByRole('dialog').getByRole('button', { name: 'Сохранить' }).click();
-    await a.getByText(/Готово: Отправлен/).waitFor();
+    await a.getByText(/Готово: Отправлено/).waitFor();
+
+    const lc = await backend.db.query(`select cost_kopecks from public.order_logistics_costs where order_id = $1`, [orderId]);
+    if (Number(lc.rows[0]?.cost_kopecks) !== 30000) fail('расходы на курьера не сохранились');
 
     const final = await backend.db.query(`select status, payment_status, total_kopecks, delivery_kopecks from public.orders where id = $1`, [orderId]);
     const f = final.rows[0];
