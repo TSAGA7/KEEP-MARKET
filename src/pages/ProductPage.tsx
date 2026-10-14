@@ -8,7 +8,8 @@ import { useSession } from '@/lib/session';
 import { haptic } from '@/lib/telegram';
 import type { CatalogVariant } from '@/lib/types';
 import { Gallery, ProductRail, StockLine, sortSizes } from '@/components/product';
-import { Button, Chip, DemoBadge, EmptyState, ErrorState, Price, SectionTitle, Skeleton, Stepper } from '@/components/ui';
+import { Button, Chip, DemoBadge, DiscountBadge, EmptyState, ErrorState, Price, SectionTitle, Skeleton, Stepper } from '@/components/ui';
+import { formatRub as formatRubText } from '@shared/money';
 import { IconChevronDown, IconEdit, IconHeart } from '@/components/icons';
 import { useToast } from '@/components/toast';
 
@@ -71,11 +72,11 @@ export default function ProductPage() {
 
   const { product, images } = q.data;
   const price = selected?.price_kopecks ?? product.min_price_kopecks;
+  const oldPrice = selected ? selected.old_price_kopecks : product.old_min_price_kopecks;
   const maxQty = selected ? Math.max(selected.min_qty, Math.min(selected.max_qty, selected.stock_qty)) : 1;
   const soldOut = selected ? selected.stock_state === 'out_of_stock' : product.stock_state === 'out_of_stock';
   const isFav = fav.has(product.id);
   const deliveryInfo = typeof settings.data?.delivery_info === 'string' ? settings.data.delivery_info : null;
-  const returnPolicy = typeof settings.data?.return_policy === 'string' ? settings.data.return_policy : null;
   const missingChoice = (needsColor && !color) ? 'Выберите цвет' : (needsSize && !size) ? 'Выберите размер' : null;
 
   // Количество 0 или повторный тап по выбранному размеру «сбрасывают» выбор
@@ -131,8 +132,10 @@ export default function ProductPage() {
       <div className="px-4 pt-5">
         {product.brand_name ? <p className="text-sm text-graphite">{product.brand_name}</p> : null}
         <h1 className="mt-1 font-display text-xl leading-tight">{product.title}</h1>
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           <span key={price} className="hang-tag animate-tag text-md font-semibold"><Price kopecks={price} /></span>
+          {oldPrice && oldPrice > price ? <s className="num text-md text-fog">{formatRubText(oldPrice)}</s> : null}
+          {product.discount_percent > 0 ? <DiscountBadge percent={product.discount_percent} /> : null}
         </div>
         <StockLine state={selected?.stock_state ?? product.stock_state} className="mt-3" />
 
@@ -189,7 +192,6 @@ export default function ProductPage() {
             </Details>
           ) : null}
           <Details title="Доставка">{deliveryInfo ?? 'Способ и стоимость доставки менеджер сообщит после подтверждения заказа.'}</Details>
-          <Details title="Возврат">{returnPolicy ?? 'Условия возврата уточняйте у менеджера.'}</Details>
           <div className="flex h-14 items-center justify-between text-sm text-graphite">
             <span>Артикул</span><span className="num text-ink">{selected?.sku ?? product.sku}</span>
           </div>

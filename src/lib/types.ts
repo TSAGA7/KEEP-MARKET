@@ -29,6 +29,8 @@ export interface CatalogProduct {
   stock_state: StockState;
   sizes: string[];
   colors: string[];
+  discount_percent: number;
+  old_min_price_kopecks: number | null;
 }
 
 export interface CatalogVariant {
@@ -45,10 +47,12 @@ export interface CatalogVariant {
   max_qty: number;
   sort_order: number;
   stock_state: StockState;
+  discount_percent: number;
+  old_price_kopecks: number | null;
 }
 
 export interface CatalogImage { id: string; product_id: string; image_ref: string; alt: string | null; sort_order: number }
-export interface Category { id: string; parent_id: string | null; name: string; slug: string; sort_order: number }
+export interface Category { id: string; parent_id: string | null; name: string; slug: string; sort_order: number; show_on_home?: boolean }
 export interface Banner { id: string; title: string; subtitle: string | null; image_ref: string | null; link_type: string; link_value: string | null; is_demo: boolean }
 export interface Collection { id: string; slug: string; title: string; description: string | null; is_demo: boolean }
 

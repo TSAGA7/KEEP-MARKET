@@ -12,16 +12,25 @@ import { IconArrowDown, IconArrowUp, IconTrash, IconEye } from '@/components/ico
 import { useToast } from '@/components/toast';
 import { formatDateTime } from '@/components/order';
 import { Gallery } from '@/components/product';
-import { parseRublesToKopecks, kopecksToRublesInput } from '@shared/money';
+import { formatRub, parseRublesToKopecks, kopecksToRublesInput } from '@shared/money';
 import { humanizeError } from '@shared/orders';
 
 interface ProductForm {
-  title: string; slug: string; description: string; category_id: string; brand_name: string; sku: string; price: string; cost: string;
+  title: string; slug: string; description: string; category_id: string; brand_name: string; sku: string; price: string; discount: string; cost: string;
   materials: string; care: string; weight_grams: string; length_mm: string; width_mm: string; height_mm: string;
   supplier_id: string; internal_notes: string; is_featured: boolean;
 }
 
 const translit: Record<string, string> = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'c', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya' };
+/** Подсказка под полем скидки: какую цену увидит покупатель */
+function discountHint(priceRaw: string, discRaw: string): string {
+  const price = parseRublesToKopecks(priceRaw ?? '');
+  const d = Number((discRaw ?? '').trim().replace('%', ''));
+  if (!price || !d || !Number.isInteger(d) || d <= 0 || d > 90) return 'Покупатель увидит старую цену зачёркнутой и плашку «Скидка»';
+  const sale = Math.round((price * (100 - d)) / 100 / 100) * 100;
+  return `Покупатель увидит ${formatRub(sale)} вместо ${formatRub(price)}`;
+}
+
 export function slugify(s: string): string {
   return s.toLowerCase().split('').map((c) => translit[c] ?? c).join('').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100);
 }
@@ -52,7 +61,7 @@ export default function ProductEditPage() {
   const canEdit = s.isAdmin;
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<ProductForm>({
-    defaultValues: { title: '', slug: '', description: '', category_id: '', brand_name: '', sku: '', price: '', cost: '', materials: '', care: '',
+    defaultValues: { title: '', slug: '', description: '', category_id: '', brand_name: '', sku: '', price: '', discount: '', cost: '', materials: '', care: '',
       weight_grams: '', length_mm: '', width_mm: '', height_mm: '', supplier_id: '', internal_notes: '', is_featured: false },
   });
 
@@ -61,7 +70,7 @@ export default function ProductEditPage() {
     if (!p) return;
     reset({
       title: p.title, slug: p.slug, description: p.description ?? '', category_id: p.category_id ?? '', brand_name: p.brand_name ?? '', sku: p.sku,
-      price: kopecksToRublesInput(p.price_kopecks), cost: kopecksToRublesInput(q.data?.cost ?? null), materials: p.materials ?? '', care: p.care ?? '',
+      price: kopecksToRublesInput(p.price_kopecks), discount: p.discount_percent ? String(p.discount_percent) : '', cost: kopecksToRublesInput(q.data?.cost ?? null), materials: p.materials ?? '', care: p.care ?? '',
       weight_grams: p.weight_grams?.toString() ?? '', length_mm: p.length_mm?.toString() ?? '',
       width_mm: p.width_mm?.toString() ?? '', height_mm: p.height_mm?.toString() ?? '', supplier_id: p.supplier_id ?? '',
       internal_notes: p.internal_notes ?? '', is_featured: p.is_featured,
@@ -86,9 +95,11 @@ export default function ProductEditPage() {
     if (price === null) { toast('Укажите розничную цену', 'error'); return; }
     const cost = f.cost.trim() ? parseRublesToKopecks(f.cost) : null;
     if (f.cost.trim() && cost === null) { toast('Некорректная закупочная цена', 'error'); return; }
+    const discount = f.discount.trim() ? Number(f.discount.trim().replace('%', '').replace(',', '.')) : 0;
+    if (!Number.isInteger(discount) || discount < 0 || discount > 90) { toast('Скидка — целое число от 0 до 90 %', 'error'); return; }
     const row = {
       title: f.title.trim(), slug: f.slug.trim(), description: f.description.trim() || null, category_id: f.category_id || null,
-      brand_name: f.brand_name.trim() || null, ...(f.sku.trim() ? { sku: f.sku.trim() } : {}), price_kopecks: price, materials: f.materials.trim() || null, care: f.care.trim() || null,
+      brand_name: f.brand_name.trim() || null, ...(f.sku.trim() ? { sku: f.sku.trim() } : {}), price_kopecks: price, discount_percent: discount, materials: f.materials.trim() || null, care: f.care.trim() || null,
       weight_grams: intOrNull(f.weight_grams), length_mm: intOrNull(f.length_mm),
       width_mm: intOrNull(f.width_mm), height_mm: intOrNull(f.height_mm), supplier_id: f.supplier_id || null,
       internal_notes: f.internal_notes.trim() || null, is_featured: f.is_featured,
@@ -193,6 +204,7 @@ export default function ProductEditPage() {
               )}
             </Field>
             <Field label="Розничная цена, ₽" error={errors.price?.message}>{(fid) => <Input id={fid} inputMode="decimal" {...register('price', { required: 'Укажите цену' })} />}</Field>
+            <Field label="Скидка, %" optional hint={discountHint(watch('price'), watch('discount'))}>{(fid) => <Input id={fid} inputMode="numeric" placeholder="Например, 20" {...register('discount')} />}</Field>
             {s.isAdmin ? (
               <Field label="Закупочная цена, ₽" optional hint="Видна только владельцу и администраторам">{(fid) => <Input id={fid} inputMode="decimal" {...register('cost')} />}</Field>
             ) : null}

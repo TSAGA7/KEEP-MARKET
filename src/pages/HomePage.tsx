@@ -1,14 +1,15 @@
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getBanners, getCategories, getCollections, getPublicSettings, popularProducts, searchCatalog } from '@/lib/api';
 import { imageUrl } from '@/lib/supabase';
 import { openTelegramLink } from '@/lib/telegram';
+import { useSession } from '@/lib/session';
 import type { Banner } from '@/lib/types';
 import { Wordmark } from '@/components/layout';
 import { ProductGrid, ProductRail } from '@/components/product';
 import { DemoBadge, ErrorState, SectionTitle, Skeleton } from '@/components/ui';
-import { IconChevronRight, IconSearch, IconSend } from '@/components/icons';
+import { IconChevronRight, IconEdit, IconSearch, IconSend } from '@/components/icons';
 
 function bannerHref(b: Banner): string | null {
   switch (b.link_type) {
@@ -51,12 +52,29 @@ function Hero({ banners }: { banners: Banner[] }) {
   );
 }
 
+type HomeSections = { in_stock: boolean; new: boolean; popular: boolean; collections: boolean };
+const DEFAULT_SECTIONS: HomeSections = { in_stock: true, new: true, popular: true, collections: true };
+
+/** Случайный порядок (Фишер — Йейтс) */
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j] as T, a[i] as T];
+  }
+  return a;
+}
+
 export default function HomePage() {
+  const session = useSession();
   const navigate = useNavigate();
   const [q, setQ] = useState('');
   const banners = useQuery({ queryKey: ['banners'], queryFn: getBanners });
   const categories = useQuery({ queryKey: ['categories'], queryFn: getCategories });
   const fresh = useQuery({ queryKey: ['catalog', 'new-home'], queryFn: () => searchCatalog({ sort: 'new', limit: 6, inStock: true }) });
+  // Случайные товары из наличия: берём до 60 и перемешиваем при каждом открытии главной
+  const inStock = useQuery({ queryKey: ['catalog', 'in-stock-home'], queryFn: () => searchCatalog({ sort: 'new', limit: 60, inStock: true }), staleTime: 0 });
+  const randomPicks = useMemo(() => shuffle((inStock.data ?? []).filter((p) => p.stock_state !== 'out_of_stock')).slice(0, 6), [inStock.data]);
   const popular = useQuery({ queryKey: ['catalog', 'popular'], queryFn: popularProducts });
   const collections = useQuery({ queryKey: ['collections'], queryFn: getCollections });
   const settings = useQuery({ queryKey: ['settings'], queryFn: getPublicSettings });
@@ -67,7 +85,9 @@ export default function HomePage() {
     enabled: !!firstCollection,
   });
   const channel = typeof settings.data?.telegram_channel_url === 'string' ? (settings.data.telegram_channel_url as string) : null;
-  const topCategories = (categories.data ?? []).filter((c) => !c.parent_id);
+  const topCategories = (categories.data ?? []).filter((c) => !c.parent_id && c.show_on_home !== false);
+  const rawSections = settings.data?.home_sections;
+  const sections: HomeSections = { ...DEFAULT_SECTIONS, ...(rawSections && typeof rawSections === 'object' ? rawSections as Partial<HomeSections> : {}) };
 
   const onSearch = (e: FormEvent) => {
     e.preventDefault();
@@ -98,6 +118,14 @@ export default function HomePage() {
 
       {banners.isLoading ? <Skeleton className="aspect-square w-full" /> : <Hero banners={banners.data ?? []} />}
 
+      {session.isAdmin ? (
+        <div className="px-4 pt-4">
+          <Link to="/admin/home" className="flex h-11 w-full items-center justify-center gap-2 border border-ink text-sm font-medium">
+            <IconEdit size={18} /> Настроить главную
+          </Link>
+        </div>
+      ) : null}
+
       <nav aria-label="Категории" className="px-4 pt-6">
         <ul className="divide-y divide-line border-y border-line">
           {topCategories.map((c) => (
@@ -111,18 +139,29 @@ export default function HomePage() {
         </ul>
       </nav>
 
-      <SectionTitle action={<Link to="/catalog" className="text-sm text-graphite underline underline-offset-4">Весь каталог</Link>}>Новые поступления</SectionTitle>
-      {fresh.isError ? <ErrorState onRetry={() => void fresh.refetch()} /> : <ProductGrid items={fresh.data} loading={fresh.isLoading} />}
-      {fresh.data && fresh.data.length === 0 ? <p className="px-4 text-graphite">Скоро здесь появятся новые товары.</p> : null}
+      {sections.in_stock && (inStock.isLoading || randomPicks.length > 0) ? (
+        <>
+          <SectionTitle action={<Link to="/catalog" className="text-sm text-graphite underline underline-offset-4">Весь каталог</Link>}>Сейчас в наличии</SectionTitle>
+          <ProductGrid items={randomPicks} loading={inStock.isLoading} />
+        </>
+      ) : null}
 
-      {popular.data && popular.data.length > 0 ? (
+      {sections.new ? (
+        <>
+          <SectionTitle action={<Link to="/catalog" className="text-sm text-graphite underline underline-offset-4">Весь каталог</Link>}>Новые поступления</SectionTitle>
+          {fresh.isError ? <ErrorState onRetry={() => void fresh.refetch()} /> : <ProductGrid items={fresh.data} loading={fresh.isLoading} />}
+          {fresh.data && fresh.data.length === 0 ? <p className="px-4 text-graphite">Скоро здесь появятся новые товары.</p> : null}
+        </>
+      ) : null}
+
+      {sections.popular && popular.data && popular.data.length > 0 ? (
         <>
           <SectionTitle>Популярное</SectionTitle>
           <ProductRail items={popular.data} />
         </>
       ) : null}
 
-      {firstCollection && editorial.data && editorial.data.length > 0 ? (
+      {sections.collections && firstCollection && editorial.data && editorial.data.length > 0 ? (
         <section>
           <SectionTitle action={<Link to={`/catalog?collection=${firstCollection.slug}`} className="text-sm text-graphite underline underline-offset-4">Смотреть</Link>}>
             <span className="inline-flex items-center gap-2">{firstCollection.title}{firstCollection.is_demo ? <DemoBadge /> : null}</span>

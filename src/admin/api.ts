@@ -13,7 +13,7 @@ export async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Pr
 
 export interface AdminProduct {
   id: string; slug: string; title: string; description: string | null; category_id: string | null; brand_name: string | null;
-  sku: string; price_kopecks: number; materials: string | null; care: string | null; size_chart: unknown; origin_description: string | null;
+  sku: string; price_kopecks: number; discount_percent: number; materials: string | null; care: string | null; size_chart: unknown; origin_description: string | null;
   weight_grams: number | null; length_mm: number | null; width_mm: number | null; height_mm: number | null;
   is_featured: boolean; is_demo: boolean; status: 'draft' | 'pending_review' | 'published' | 'hidden' | 'archived';
   supplier_id: string | null; supplier_documents_reference: string | null; trademark_review_status: string; compliance_status: string;

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import clsx from 'clsx';
 import { imageUrl } from '@/lib/supabase';
 import type { CatalogProduct, StockState } from '@/lib/types';
-import { Price, DemoBadge, Skeleton } from './ui';
+import { DemoBadge, DiscountBadge, SalePrice, Skeleton } from './ui';
 import { IconImage } from './icons';
 
 export function ProductImage({ src, alt, className, eager }: { src: string | null; alt: string; className?: string; eager?: boolean }) {
@@ -53,6 +53,7 @@ export function ProductCard({ p, priority }: { p: CatalogProduct; priority?: boo
         <ProductImage src={p.cover_ref} alt={p.title} eager={priority} className={clsx('aspect-[4/5]', soldOut && 'opacity-55')} />
         <div className="absolute left-2 top-2 flex gap-1">
           {p.is_demo ? <DemoBadge /> : null}
+          {p.discount_percent > 0 && !soldOut ? <DiscountBadge percent={p.discount_percent} /> : null}
           {soldOut ? <span className="bg-paper px-2 py-0.5 text-xs">Нет в наличии</span> : null}
         </div>
       </div>
@@ -61,7 +62,7 @@ export function ProductCard({ p, priority }: { p: CatalogProduct; priority?: boo
         <span className="line-clamp-2 text-sm leading-[18px]">{p.title}</span>
         <span className="mt-0.5 text-sm font-semibold">
           {range ? <span className="font-normal text-graphite">от </span> : null}
-          <Price kopecks={p.min_price_kopecks} />
+          <SalePrice kopecks={p.min_price_kopecks} oldKopecks={p.old_min_price_kopecks} />
         </span>
       </div>
     </Link>

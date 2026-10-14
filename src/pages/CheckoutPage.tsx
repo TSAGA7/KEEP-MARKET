@@ -15,7 +15,7 @@ import { applyServerProblems, cartTotals, contactSchema } from '@shared/checkout
 import { humanizeError } from '@shared/orders';
 import { PageHeader } from '@/components/layout';
 import { ProductImage } from '@/components/product';
-import { Button, Checkbox, EmptyState, Field, Input, Notice, Price, Select, Textarea } from '@/components/ui';
+import { Button, EmptyState, Field, Input, Notice, Price, Select, Textarea } from '@/components/ui';
 import { useToast } from '@/components/toast';
 
 const WARNING = 'После оформления менеджер подтвердит заказ и свяжется с вами, чтобы согласовать доставку и оплату. На этом этапе оплата не производится.';
@@ -40,8 +40,6 @@ export default function CheckoutPage() {
   const settings = useQuery({ queryKey: ['settings'], queryFn: getPublicSettings });
   const providers = enabledProviders(settings.data?.delivery_methods as Partial<Record<DeliveryMethod, boolean>> | undefined);
   const [method, setMethod] = useState<DeliveryMethod | null>(null);
-  const [consent, setConsent] = useState(false);
-  const [consentError, setConsentError] = useState(false);
   const [serverChanges, setServerChanges] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const idemKey = useRef(newKey());
@@ -84,7 +82,6 @@ export default function CheckoutPage() {
 
   const onSubmit = handleSubmit(async (values) => {
     if (!method) return;
-    if (!consent) { setConsentError(true); haptic('error'); return; }
     setSubmitting(true);
     setServerChanges([]);
     try {
@@ -235,15 +232,12 @@ export default function CheckoutPage() {
 
       <div className="space-y-4 px-4 pt-6">
         <Notice tone="warn">{WARNING}</Notice>
-        <div>
-          <Checkbox checked={consent} onChange={(v) => { setConsent(v); if (v) setConsentError(false); }}>
-            Согласен на обработку персональных данных в соответствии с <Link to="/legal/privacy" className="underline underline-offset-2">политикой</Link> и принимаю <Link to="/legal/offer" className="underline underline-offset-2">условия оферты</Link>
-          </Checkbox>
-          {consentError ? <p className="mt-1 text-sm text-rust" role="alert">Без согласия мы не сможем обработать заявку</p> : null}
-        </div>
         <Button type="submit" block size="lg" loading={submitting} disabled={!method}>
           {method ? 'Заказать' : 'Выберите способ доставки'}
         </Button>
+        <p className="text-center text-xs text-fog">
+          Нажимая «Заказать», вы соглашаетесь с <Link to="/legal/privacy" className="underline underline-offset-2">политикой обработки данных</Link> и <Link to="/legal/offer" className="underline underline-offset-2">офертой</Link>.
+        </p>
       </div>
     </form>
   );

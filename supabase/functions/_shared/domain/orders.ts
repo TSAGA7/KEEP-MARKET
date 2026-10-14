@@ -130,10 +130,21 @@ export const ERROR_MESSAGES: Record<string, string> = {
   ROLE_NOT_ASSIGNABLE: 'Эту роль нельзя назначить',
 };
 
+const FIELD_LABELS: Record<string, string> = {
+  tracking_number: 'Трек-номер', cost_kopecks: 'Расходы на доставку', delivery_kopecks: 'Стоимость доставки',
+  reason: 'Причина / комментарий', eta_text: 'Срок доставки', new_unit_price_kopecks: 'Новая цена',
+  price_change_reason: 'Причина изменения цены', carrier: 'Перевозчик', payment_method: 'Способ оплаты',
+  phone: 'Телефон', recipient_name: 'ФИО получателя', availability: 'Наличие', notes: 'Комментарий',
+};
+
 export function humanizeError(raw: string | undefined | null): string {
   if (!raw) return 'Что-то пошло не так. Попробуйте ещё раз';
   const code = Object.keys(ERROR_MESSAGES).find((k) => raw.includes(k));
   if (code) return ERROR_MESSAGES[code] as string;
-  if (raw.startsWith('VALIDATION')) return 'Проверьте правильность заполнения полей';
+  if (raw.startsWith('VALIDATION')) {
+    const field = raw.split(':')[1]?.trim() ?? '';
+    const name = FIELD_LABELS[field];
+    return name ? `Проверьте поле «${name}»` : 'Проверьте правильность заполнения полей';
+  }
   return 'Что-то пошло не так. Попробуйте ещё раз';
 }

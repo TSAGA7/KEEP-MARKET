@@ -27,7 +27,7 @@ const payloadSchema = z.object({
   customer_agreed_in_chat: z.boolean().optional(),
   payment_method: z.enum(['online', 'manual_transfer', 'cash_on_delivery', 'other']).optional(),
   carrier: z.enum(['cdek', 'ozon', 'russian_post', 'yandex', 'keep_courier', 'other']).optional(),
-  tracking_number: z.string().regex(/^[A-Za-z0-9-]{4,40}$/).optional().or(z.literal('')),
+  tracking_number: z.string().trim().max(60).optional(),
   cost_kopecks: z.number().int().min(0).max(100_000_000).nullable().optional(),
   notes: z.string().max(500).optional(),
   shipment_id: z.string().uuid().optional(),
@@ -44,7 +44,11 @@ serve('order-action', async (req) => {
   const auth = await requireUser(req);
   await rateLimit(`order-action:user:${auth.userId}`, 60, 60);
   const parsed = bodySchema.safeParse(await readJson(req, 32 * 1024));
-  if (!parsed.success) throw new HttpError(422, 'VALIDATION');
+  if (!parsed.success) {
+    // Понятная ошибка: какое поле заполнено неверно
+    const field = String(parsed.error.issues[0]?.path.at(-1) ?? '');
+    throw new HttpError(422, `VALIDATION: ${field}`.slice(0, 80));
+  }
   const { order_id, action, payload } = parsed.data;
 
   if (action === 'customer_confirm' || action === 'customer_cancel') {

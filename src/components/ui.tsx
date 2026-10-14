@@ -122,6 +122,22 @@ export function Price({ kopecks, className }: { kopecks: number | null | undefin
   return <span className={clsx('num whitespace-nowrap', className)}>{formatRub(kopecks)}</span>;
 }
 
+/** Цена со скидкой: новая + старая зачёркнутая */
+export function SalePrice({ kopecks, oldKopecks, className }: { kopecks: number | null | undefined; oldKopecks?: number | null; className?: string }) {
+  if (!oldKopecks || !kopecks || oldKopecks <= kopecks) return <Price kopecks={kopecks} className={className} />;
+  return (
+    <span className={clsx('inline-flex flex-wrap items-baseline gap-x-2', className)}>
+      <Price kopecks={kopecks} className="text-rust" />
+      <s className="num whitespace-nowrap text-[0.85em] font-normal text-fog">{formatRub(oldKopecks)}</s>
+    </span>
+  );
+}
+
+export function DiscountBadge({ percent, className }: { percent: number; className?: string }) {
+  if (!percent) return null;
+  return <span className={clsx('bg-rust px-2 py-0.5 text-xs font-semibold text-white', className)}>Скидка −{percent}%</span>;
+}
+
 // ---------------------------------------------------------------------------
 export function Skeleton({ className }: { className?: string }) {
   return <div aria-hidden className={clsx('animate-pulse bg-concrete', className)} />;

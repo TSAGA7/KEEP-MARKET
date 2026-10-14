@@ -315,10 +315,10 @@ function ActionDialogs({ dialog, close, busy, act, order, items, payments, onRef
       return (
         <Sheet open onClose={close} title={dialog === 'ship' ? 'Отправка' : 'Трек-номер'}
           footer={footer('Сохранить', () => {
-            if (dialog !== 'ship') { void act(dialog, { tracking_number: tracking }); return; }
+            if (dialog !== 'ship') { void act(dialog, { tracking_number: tracking.trim() }); return; }
             const cost = shipCost.trim() ? parseRublesToKopecks(shipCost) : null;
             if (shipCost.trim() && cost === null) { toast('Некорректная сумма расходов', 'error'); return; }
-            void act('ship', { carrier, ...(tracking ? { tracking_number: tracking } : {}), ...(cost !== null ? { cost_kopecks: cost } : {}) });
+            void act('ship', { carrier, ...(tracking.trim() ? { tracking_number: tracking.trim() } : {}), ...(cost !== null ? { cost_kopecks: cost } : {}) });
           })}>
           <div className="space-y-3">
             {dialog === 'ship' ? (
@@ -327,7 +327,7 @@ function ActionDialogs({ dialog, close, busy, act, order, items, payments, onRef
                 <option value="yandex">Яндекс Доставка</option><option value="keep_courier">Курьер KEEP MARKET</option><option value="other">Другое</option>
               </Select>
             ) : null}
-            <Input placeholder={dialog === 'ship' ? 'Трек-номер — необязательно' : 'Трек-номер (латиница, цифры, дефис)'} value={tracking} onChange={(e) => setTracking(e.target.value.trim())} />
+            <Input placeholder={dialog === 'ship' ? 'Трек-номер — необязательно' : 'Трек-номер'} value={tracking} onChange={(e) => setTracking(e.target.value)} />
             {dialog === 'ship' && isAdmin ? (
               <Field label="Наши расходы на доставку (курьер), ₽" optional hint="Покупатель не видит. Учитывается в панели управления">
                 {(fid) => <Input id={fid} inputMode="decimal" placeholder="Например, 300" value={shipCost} onChange={(e) => setShipCost(e.target.value)} />}

@@ -91,6 +91,21 @@ describe('создание заявки', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('скидка в %: витрина показывает новую и старую цену, заявка считается по цене со скидкой', async () => {
+    const sale = await createSellableProduct(db, { slug: 'sale', price: 390000, stock: 3 });
+    await db.query('update public.products set discount_percent = 20 where id = $1', [sale.productId]);
+    const cp = await one<{ min_price_kopecks: number; old_min_price_kopecks: number; discount_percent: number }>(db,
+      'select min_price_kopecks, old_min_price_kopecks, discount_percent from public.catalog_products where id = $1', [sale.productId]);
+    expect([Number(cp.min_price_kopecks), Number(cp.old_min_price_kopecks), cp.discount_percent]).toEqual([312000, 390000, 20]);
+    const cv = await one<{ price_kopecks: number; old_price_kopecks: number }>(db,
+      'select price_kopecks, old_price_kopecks from public.catalog_variants where id = $1', [sale.variantId]);
+    expect([Number(cv.price_kopecks), Number(cv.old_price_kopecks)]).toEqual([312000, 390000]);
+    const r = await create(orderPayload([{ variant_id: sale.variantId, quantity: 1, expected_unit_price_kopecks: 312000 }]));
+    expect(r.ok).toBe(true);
+    const it = await one<{ unit_price_kopecks: number }>(db, 'select unit_price_kopecks from public.order_items where order_id = $1', [r.order_id]);
+    expect(Number(it.unit_price_kopecks)).toBe(312000);
+  });
+
   it('неопубликованный (черновик) товар нельзя заказать даже по прямому id варианта', async () => {
     const p = await createSellableProduct(db, { slug: 'back-to-draft', price: 1000 });
     await db.query(`update public.products set status = 'draft' where id = $1`, [p.productId]);

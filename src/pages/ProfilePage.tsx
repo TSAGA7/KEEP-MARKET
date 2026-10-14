@@ -69,12 +69,10 @@ export default function ProfilePage() {
 
       <ul className="divide-y divide-line border-y border-line">
         <Row to="/orders" icon={<IconBox />}>Мои заказы</Row>
-        <Row onClick={() => openTelegramLink(managerUrl)} icon={<IconChat />}>
-          Написать менеджеру <span className="text-graphite">@{managerUrl.replace('https://t.me/', '')}</span>
-        </Row>
         {bot ? <Row onClick={() => openTelegramLink(`https://t.me/${bot}`)} icon={<IconChat />}>Поддержка и вопросы по заказу</Row> : null}
         {channel ? <Row onClick={() => openTelegramLink(channel)} icon={<IconSend />}>Канал KEEP MARKET</Row> : null}
         <Row onClick={() => openTelegramLink(REVIEWS_CHANNEL_URL)} icon={<IconStar />}>Отзывы</Row>
+        <Row onClick={() => openTelegramLink(managerUrl)} icon={<IconChat />}>Написать менеджеру</Row>
         {s.isStaff ? <Row to="/admin" icon={<IconShield />}>Панель управления</Row> : null}
       </ul>
       {hours ? <p className="px-4 pt-4 text-sm text-graphite">Поддержка: {hours}</p> : null}

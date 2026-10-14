@@ -28,12 +28,14 @@ const PromosPage = lazy(() => import('./pages/PromosPage'));
 const BannersPage = lazy(() => import('./pages/BannersPage'));
 const AuditPage = lazy(() => import('./pages/AuditPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const HomeSettingsPage = lazy(() => import('./pages/HomeSettingsPage'));
 
 type Role = 'owner' | 'admin' | 'manager';
 const NAV: Array<{ to: string; label: string; icon: (p: { size?: number }) => JSX.Element; roles: Role[] }> = [
   { to: '', label: 'Обзор', icon: IconHome, roles: ['owner', 'admin', 'manager'] },
   { to: 'orders', label: 'Заказы', icon: IconBox, roles: ['owner', 'admin', 'manager'] },
   { to: 'products', label: 'Товары', icon: IconGrid, roles: ['owner', 'admin', 'manager'] },
+  { to: 'home', label: 'Главная страница', icon: IconHome, roles: ['owner', 'admin'] },
   { to: 'categories', label: 'Категории', icon: IconList, roles: ['owner', 'admin'] },
   { to: 'variants', label: 'Размеры и остатки', icon: IconRuler, roles: ['owner', 'admin', 'manager'] },
   { to: 'pricing', label: 'Прайсы', icon: IconUpload, roles: ['owner', 'admin'] },
@@ -126,6 +128,7 @@ export default function AdminApp() {
             <Route path="orders/:id" element={<OrderPage />} />
             <Route path="products" element={<ProductsPage />} />
             <Route path="products/:id" element={<ProductEditPage />} />
+            <Route path="home" element={<HomeSettingsPage />} />
             <Route path="categories" element={<CategoriesPage />} />
             <Route path="variants" element={<VariantsPage />} />
             <Route path="pricing" element={<PricingPage />} />

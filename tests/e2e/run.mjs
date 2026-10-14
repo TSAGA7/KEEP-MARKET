@@ -106,9 +106,7 @@ async function main() {
     await p.getByLabel('Город').fill('Москва');
     await p.getByLabel('Адрес пункта выдачи').fill('ул. Сретенка, 12');
     await shot(p, '05-checkout', true);
-    await p.getByRole('button', { name: 'Заказать' }).click();
-    await p.getByText('Без согласия мы не сможем обработать заявку').waitFor();
-    await p.getByRole('checkbox').check();
+    if (await p.getByRole('checkbox').count()) fail('галочки согласия быть не должно');
 
     // Курьер по Москве — форма меняется
     await p.getByText('Курьер KEEP MARKET по Москве').click();
