@@ -4,10 +4,10 @@
 // через закрытый чат менеджеров (reply на пересланное сообщение уходит покупателю).
 import { serve, json, HttpError } from '../_shared/http.ts';
 import { adminClient, getSetting } from '../_shared/supabase.ts';
-import { sendMessage, tgCall, appUrl, miniAppLink, notifyManagers, statusLabel } from '../_shared/telegram.ts';
+import { sendMessage, tgCall, appUrl, miniAppLink, notifyManagers, managerTargets, statusLabel } from '../_shared/telegram.ts';
 import { escapeTelegramHtml as esc, timingSafeEqual } from '../_shared/domain/telegram.ts';
 import { requireEnv } from '../_shared/env.ts';
-import { hasImportableImage, importFromMessage, isCatalogEditor, type ImportMessage } from '../_shared/import.ts';
+import { hasImportableImage, importFromMessage, importTextFromMessage, isCatalogEditor, type ImportMessage } from '../_shared/import.ts';
 
 type TgUser = { id: number; is_bot?: boolean; first_name?: string; last_name?: string; username?: string; language_code?: string };
 type TgMessage = {
@@ -18,7 +18,15 @@ type TgMessage = {
   caption?: string;
   photo?: unknown[];
   reply_to_message?: { message_id: number };
+  media_group_id?: string;
+  forward_origin?: unknown;
+  forward_from_chat?: unknown;
 };
+
+function messageKind(m: TgMessage): string {
+  const keys = ['text', 'photo', 'video', 'document', 'animation', 'sticker', 'voice', 'audio', 'video_note', 'poll', 'contact', 'location'];
+  return keys.find((k) => (m as unknown as Record<string, unknown>)[k] !== undefined) ?? 'other';
+}
 type Update = { update_id: number; message?: TgMessage };
 
 function shopButton(path = '') {
@@ -46,6 +54,12 @@ async function handlePrivate(m: TgMessage) {
   const u = m.from as TgUser;
   const db = adminClient();
   const text = (m.text ?? '').trim();
+
+  // Чат с ботом нужен для уведомлений (в т.ч. сотрудникам, если чат менеджеров не настроен)
+  await db.from('profiles').update({ bot_chat_id: m.chat.id }).eq('telegram_id', u.id).is('bot_chat_id', null);
+
+  // Сотрудник отвечает покупателю reply-ответом в личном чате с ботом
+  if (m.reply_to_message && await relayStaffReply(m)) return;
 
   if (text.startsWith('/start')) {
     await upsertProfileFromBot(u);
@@ -105,9 +119,15 @@ async function handlePrivate(m: TgMessage) {
     return;
   }
 
-  // Сообщение покупателя → чат менеджеров (копия + привязка для ответа)
-  const managerChat = await getSetting<number | string>('manager_chat_id');
-  if (!managerChat) {
+  // Владелец/админ: пересланный текст поста или прочее — это работа с каталогом, а не вопрос покупателя
+  if (await isCatalogEditor(u.id)) {
+    await handleEditorMessage(m);
+    return;
+  }
+
+  // Сообщение покупателя → менеджерам (копия + привязка для ответа)
+  const targets = await managerTargets();
+  if (!targets.length) {
     await sendMessage(m.chat.id, 'Сейчас мы не можем принять сообщение. Попробуйте позже.');
     return;
   }
@@ -119,26 +139,30 @@ async function handlePrivate(m: TgMessage) {
       .not('status', 'in', '(delivered,cancelled)').order('created_at', { ascending: false }).limit(1).maybeSingle();
     if (last) { orderRef = ` по заявке <b>${esc(last.number)}</b>`; orderId = last.id; }
   }
-  const header = await sendMessage(managerChat, `Сообщение покупателя${orderRef}. Ответьте reply на копию ниже.`,
-    orderId && miniAppLink(`a_${orderId}`, `admin/orders/${orderId}`) ? [[{ text: 'Открыть заявку', url: miniAppLink(`a_${orderId}`, `admin/orders/${orderId}`) as string }]] : undefined);
-  const copy = await tgCall<{ message_id: number }>('copyMessage', { chat_id: managerChat, from_chat_id: m.chat.id, message_id: m.message_id });
-  if (copy.ok && copy.result) {
-    await db.from('bot_relay_messages').insert({
-      manager_chat_id: Number(managerChat), manager_message_id: copy.result.message_id, customer_chat_id: m.chat.id,
-      customer_id: profile?.id ?? null, order_id: orderId,
-    });
-    await sendMessage(m.chat.id, 'Сообщение передано менеджеру. Ответ придёт в этот чат.');
-  } else if (!header.ok) {
-    await sendMessage(m.chat.id, 'Не удалось передать сообщение. Попробуйте позже.');
+  const buttons = orderId && miniAppLink(`a_${orderId}`, `admin/orders/${orderId}`)
+    ? [[{ text: 'Открыть заявку', url: miniAppLink(`a_${orderId}`, `admin/orders/${orderId}`) as string }]] : undefined;
+  let delivered = false;
+  for (const target of targets) {
+    await sendMessage(target, `Сообщение покупателя${orderRef}. Ответьте reply на копию ниже.`, buttons);
+    const copy = await tgCall<{ message_id: number }>('copyMessage', { chat_id: target, from_chat_id: m.chat.id, message_id: m.message_id });
+    if (copy.ok && copy.result) {
+      delivered = true;
+      await db.from('bot_relay_messages').insert({
+        manager_chat_id: Number(target), manager_message_id: copy.result.message_id, customer_chat_id: m.chat.id,
+        customer_id: profile?.id ?? null, order_id: orderId,
+      });
+    }
   }
+  await sendMessage(m.chat.id, delivered ? 'Сообщение передано менеджеру. Ответ придёт в этот чат.' : 'Не удалось передать сообщение. Попробуйте позже.');
 }
 
-async function handleManagerChat(m: TgMessage) {
-  const managerChat = await getSetting<number | string>('manager_chat_id');
-  if (!managerChat || String(m.chat.id) !== String(managerChat)) return; // бот игнорирует чужие группы
-  if (!m.reply_to_message || !m.from || m.from.is_bot) return;
-  // Отвечать покупателям могут только сотрудники магазина
+async function relayStaffReply(m: TgMessage): Promise<boolean> {
+  if (!m.reply_to_message || !m.from || m.from.is_bot) return false;
   const db = adminClient();
+  const { data: link } = await db.from('bot_relay_messages').select('customer_chat_id, order_id')
+    .eq('manager_chat_id', m.chat.id).eq('manager_message_id', m.reply_to_message.message_id).maybeSingle();
+  if (!link) return false;
+  // Отвечать покупателям могут только сотрудники магазина
   const { data: staffProfile } = await db.from('profiles').select('id, is_blocked').eq('telegram_id', m.from.id).maybeSingle();
   const { data: staffRoles } = staffProfile
     ? await db.from('user_roles').select('role').eq('user_id', staffProfile.id)
@@ -146,16 +170,36 @@ async function handleManagerChat(m: TgMessage) {
   const staff = staffProfile && !staffProfile.is_blocked && (staffRoles ?? []).length > 0 ? staffProfile : null;
   if (!staff) {
     await sendMessage(m.chat.id, 'Ответ не отправлен: ваш Telegram-аккаунт не назначен сотрудником в админ-панели.');
-    return;
+    return true;
   }
-  const { data: link } = await db.from('bot_relay_messages').select('customer_chat_id, order_id')
-    .eq('manager_chat_id', m.chat.id).eq('manager_message_id', m.reply_to_message.message_id).maybeSingle();
-  if (!link) return;
   const res = await tgCall('copyMessage', { chat_id: link.customer_chat_id, from_chat_id: m.chat.id, message_id: m.message_id });
   await sendMessage(m.chat.id, res.ok ? 'Ответ отправлен покупателю.' : 'Не удалось отправить ответ (покупатель мог остановить бота).');
   if (res.ok && link.order_id) {
     await db.from('audit_logs').insert({ actor_id: staff.id, action: 'bot_reply_sent', entity: 'orders', entity_id: link.order_id, details: {} });
   }
+  return true;
+}
+
+async function handleManagerChat(m: TgMessage) {
+  const managerChat = await getSetting<number | string>('manager_chat_id');
+  if (!managerChat || String(m.chat.id) !== String(managerChat)) return; // бот игнорирует чужие группы
+  await relayStaffReply(m);
+}
+
+/** Сообщение без фото от владельца/админа: текст поста → в последний черновик, иначе — подсказка вместо пересылки менеджерам. */
+async function handleEditorMessage(m: TgMessage): Promise<void> {
+  const forwarded = !!(m.forward_origin || m.forward_from_chat);
+  const kind = messageKind(m);
+  if ((kind === 'text' || m.caption) && await importTextFromMessage(m)) return;
+  console.log(`[telegram-bot] editor message not imported: kind=${kind} forwarded=${forwarded} album=${!!m.media_group_id}`);
+  if (m.media_group_id) return; // видео и прочее из альбома: фото уже импортируются, лишнее молча пропускаем
+  if (forwarded) {
+    await sendMessage(m.chat.id, kind === 'text'
+      ? 'Текст без фото не к чему добавить: черновика за последние 5 минут нет. Перешлите пост с фото — бот создаст черновик, затем можно переслать текст.'
+      : 'Этот тип сообщения не импортируется. Перешлите пост с фото (JPEG, PNG или WebP) — бот создаст черновик товара.');
+    return;
+  }
+  await sendMessage(m.chat.id, 'Чтобы добавить товар, перешлите сюда пост поставщика с фото. Ответить покупателю — reply на его сообщение. Команды: /shop, /orders, /import.');
 }
 
 serve('telegram-bot', async (req) => {

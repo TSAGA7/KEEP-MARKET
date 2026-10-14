@@ -33,6 +33,7 @@ jobs:
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      PHOTO_TRIGGER_TOKEN: ${{ secrets.PHOTO_TRIGGER_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -99,9 +100,17 @@ jobs:
             SESSION_TTL_SECONDS=43200 \
             PAYMENT_PROVIDER=none
 
+      - name: Мгновенный запуск обработки фото (если задан секрет PHOTO_TRIGGER_TOKEN)
+        run: |
+          if [ -n "$PHOTO_TRIGGER_TOKEN" ]; then
+            supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" PHOTO_TRIGGER_TOKEN="$PHOTO_TRIGGER_TOKEN" PHOTO_TRIGGER_REPO="${{ github.repository }}"
+          else
+            echo "::notice::Секрет PHOTO_TRIGGER_TOKEN не задан — фото обрабатываются по расписанию GitHub"
+          fi
+
       - name: Деплой Edge Functions
         run: |
-          for f in auth-telegram create-order order-action payment-create payment-webhook payment-refund telegram-bot; do
+          for f in auth-telegram create-order order-action payment-create payment-webhook payment-refund telegram-bot photo-kick; do
             supabase functions deploy "$f" --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --import-map supabase/functions/import_map.json
           done
 

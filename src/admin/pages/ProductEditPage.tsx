@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
-import { db, imageUrl } from '@/lib/supabase';
+import { callFunction, db, imageUrl } from '@/lib/supabase';
 import { useSession } from '@/lib/session';
 import { BLOCKER_LABEL, PRODUCT_STATUS_LABEL, check, errText, getAdminProduct, rpc, uploadProductImage, type AdminImage, type AdminProduct, type AdminVariant } from '../api';
 import { AdminPage, KV, Section, Table, Td } from '../ui';
@@ -233,6 +233,16 @@ const PROCESSING_LABEL: Record<AdminImage['processing_status'], string> = {
   skipped: 'Фон оставлен: коллаж или крупный план',
 };
 
+/** Запустить удаление фона сразу; ошибки не мешают работе — фото всё равно обработаются по расписанию */
+async function kickPhotoProcessing(): Promise<boolean> {
+  try {
+    const r = await callFunction<{ started: boolean }>('photo-kick', {});
+    return r.started;
+  } catch {
+    return false;
+  }
+}
+
 function ImagesSection({ productId, images, canEdit, onChange }: { productId: string; images: AdminImage[]; canEdit: boolean; onChange: () => Promise<void> }) {
   const toast = useToast();
   const [uploading, setUploading] = useState(false);
@@ -249,7 +259,12 @@ function ImagesSection({ productId, images, canEdit, onChange }: { productId: st
           processing_status: removeBg ? 'pending' : 'none',
         }));
       }
-      toast(removeBg ? 'Фото загружены, фон удалится автоматически в течение ~15 минут' : 'Фото загружены', 'success');
+      if (removeBg) {
+        const started = await kickPhotoProcessing();
+        toast(started ? 'Фото загружены, фон удалится через 2–5 минут' : 'Фото загружены, фон удалится автоматически (обработка по расписанию)', 'success');
+      } else {
+        toast('Фото загружены', 'success');
+      }
       await onChange();
     } catch (e) {
       toast(errText(e), 'error');
@@ -282,7 +297,10 @@ function ImagesSection({ productId, images, canEdit, onChange }: { productId: st
   const switchVersion = async (img: AdminImage, version: 'original' | 'processed' | 'reprocess') => {
     try {
       await rpc('staff_image_use_version', { p_image_id: img.id, p_version: version });
-      if (version === 'reprocess') toast('Фото отправлено на повторную обработку', 'success');
+      if (version === 'reprocess') {
+        const started = await kickPhotoProcessing();
+        toast(started ? 'Фото отправлено на повторную обработку (2–5 минут)' : 'Фото отправлено на повторную обработку', 'success');
+      }
       await onChange();
     } catch (e) { toast(errText(e), 'error'); }
   };

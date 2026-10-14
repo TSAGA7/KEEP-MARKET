@@ -57,3 +57,7 @@ import_map = "./functions/import_map.json"
 [functions.telegram-bot]
 verify_jwt = false
 import_map = "./functions/import_map.json"
+
+[functions.photo-kick]
+verify_jwt = false
+import_map = "./functions/import_map.json"

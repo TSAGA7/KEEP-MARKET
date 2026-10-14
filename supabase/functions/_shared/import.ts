@@ -6,6 +6,7 @@ import { tgCall, sendMessage, appUrl } from './telegram.ts';
 import { parseSupplierPost } from './domain/import.ts';
 import { escapeTelegramHtml as esc } from './domain/telegram.ts';
 import { formatRub } from './domain/money.ts';
+import { kickPhotoProcessing, photoTriggerConfigured } from './photos.ts';
 
 type PhotoSize = { file_id: string; file_unique_id: string; width: number; height: number; file_size?: number };
 export type ImportMessage = {
@@ -83,17 +84,23 @@ export async function importFromMessage(m: ImportMessage): Promise<void> {
   // Фото: оригинал в Storage, в очередь на удаление фона
   const fileId = m.photo?.length ? (m.photo[m.photo.length - 1] as PhotoSize).file_id : m.document?.file_id;
   let photoError: string | null = null;
+  let photoQueued = false;
   if (fileId) {
     try {
       const file = await downloadTelegramFile(fileId);
       const path = `${r.product_id}/orig-${crypto.randomUUID()}.${file.ext}`;
       const up = await db.storage.from('product-images').upload(path, file.bytes, { contentType: file.mime, upsert: false, cacheControl: '31536000' });
       if (up.error) throw new Error('STORAGE_UPLOAD_FAILED');
-      await db.rpc('bot_import_add_photo', { p_product_id: r.product_id, p_group_key: groupKey, p_storage_path: path, p_message_id: m.message_id });
+      const add = await db.rpc('bot_import_add_photo', { p_product_id: r.product_id, p_group_key: groupKey, p_storage_path: path, p_message_id: m.message_id });
+      if (add.error) throw new Error('PHOTO_SAVE_FAILED');
+      photoQueued = true;
     } catch (e) {
       photoError = (e as Error).message;
     }
   }
+
+  // Первое фото поста запускает удаление фона сразу; остальные фото альбома подхватит тот же запуск
+  const kicked = r.created && photoQueued ? await kickPhotoProcessing() : false;
 
   if (r.created) {
     // В личном чате с ботом кнопка web_app открывает Mini App с авторизацией сотрудника
@@ -104,7 +111,12 @@ export async function importFromMessage(m: ImportMessage): Promise<void> {
       r.retail_kopecks ? `Розничная (с наценкой): ${esc(formatRub(r.retail_kopecks))}` : (r.cost_kopecks ? 'Розничную цену укажите в карточке' : ''),
       parsed.sizes.length ? `Размеры: ${esc(parsed.sizes.join(', '))} (остаток 0 — уточните у поставщика)` : 'Размеры не найдены — добавьте варианты',
       r.supplier_found ? 'Поставщик определён по каналу' : 'Поставщик не определён — выберите в карточке',
-      'Фон на фото удаляется автоматически в течение ~15 минут. Остальные фото альбома добавятся в этот же товар.',
+      kicked
+        ? 'Фон на фото удалится через 2–5 минут. Остальные фото альбома добавятся в этот же товар.'
+        : photoTriggerConfigured()
+          ? 'Фон на фото удалится автоматически (запуск обработки не ответил — сработает расписание). Остальные фото альбома добавятся в этот же товар.'
+          : 'Фон на фото удаляется по расписанию GitHub — это может занять до нескольких часов. Чтобы ускорить, настройте мгновенный запуск (PHOTO_TRIGGER_TOKEN). Остальные фото альбома добавятся в этот же товар.',
+      'Если текст поста пришёл отдельным сообщением — перешлите его следом, он добавится в этот черновик.',
       'Товар не опубликован: проверьте цену, категорию и нажмите «Опубликовать».',
     ].filter(Boolean);
     await sendMessage(m.chat.id, lines.join('\n'), link ? [[{ text: 'Открыть черновик', web_app: { url: link } }]] : undefined);
@@ -112,4 +124,30 @@ export async function importFromMessage(m: ImportMessage): Promise<void> {
   if (photoError) {
     await sendMessage(m.chat.id, `Одно фото не удалось сохранить (${esc(photoError)}). Загрузите его вручную в карточке товара.`);
   }
+}
+
+/** Текст поста без фото, пересланный сотрудником сразу после альбома → дополнить последний черновик. */
+export async function importTextFromMessage(m: { chat: { id: number }; from?: { id: number }; text?: string; caption?: string }): Promise<boolean> {
+  const raw = (m.text ?? m.caption ?? '').trim();
+  if (!raw || !m.from) return false;
+  const parsed = parseSupplierPost(raw);
+  const { data, error } = await adminClient().rpc('bot_import_attach_text', {
+    p_actor_telegram_id: m.from.id,
+    p_title: parsed.title,
+    p_description: parsed.description,
+    p_raw_caption: raw,
+    p_price_kopecks: parsed.priceKopecks,
+    p_sizes: parsed.sizes,
+  });
+  if (error) {
+    console.error('[import] attach text failed', error.message?.slice(0, 120));
+    return false;
+  }
+  const r = data as { attached: boolean; product_id?: string; title?: string; changed?: string[] };
+  if (!r?.attached || !r.product_id) return false;
+  const link = appUrl(`admin/products/${r.product_id}`);
+  const what = r.changed?.length ? ` Обновлено: ${esc(r.changed.join(', '))}.` : ' Текст сохранён в заметках товара.';
+  await sendMessage(m.chat.id, `Текст добавлен к черновику «${esc(r.title ?? '')}».${what}`,
+    link ? [[{ text: 'Открыть черновик', web_app: { url: link } }]] : undefined);
+  return true;
 }

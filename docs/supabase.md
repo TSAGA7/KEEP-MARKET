@@ -31,7 +31,7 @@ supabase db push               # применить миграции из supaba
 ```bash
 cp supabase/functions/.env.example supabase/functions/.env   # заполнить; файл в .gitignore
 supabase secrets set --env-file supabase/functions/.env
-supabase functions deploy auth-telegram create-order order-action payment-create payment-webhook payment-refund telegram-bot
+supabase functions deploy auth-telegram create-order order-action payment-create payment-webhook payment-refund telegram-bot photo-kick
 # payment-mock-simulate — только на тестовом проекте с APP_ENV=development
 ```
 

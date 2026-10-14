@@ -50,25 +50,41 @@ export function miniAppLink(startParam: string, fallbackPath: string): string | 
   return appUrl(fallbackPath);
 }
 
+/** Куда слать служебные сообщения: чат менеджеров из настроек, а если он не задан —
+ *  личные чаты сотрудников (владелец, администраторы, менеджеры), которые открывали бота. */
+export async function managerTargets(): Promise<Array<number | string>> {
+  const chatId = await getSetting<number | string>('manager_chat_id');
+  if (chatId) return [chatId];
+  const db = adminClient();
+  const { data: roles } = await db.from('user_roles').select('user_id').in('role', ['owner', 'admin', 'manager']);
+  const ids = [...new Set((roles ?? []).map((r: { user_id: string }) => r.user_id))];
+  if (!ids.length) return [];
+  const { data: staff } = await db.from('profiles').select('bot_chat_id').in('id', ids).eq('is_blocked', false).not('bot_chat_id', 'is', null);
+  const chats = [...new Set((staff ?? []).map((p: { bot_chat_id: number }) => p.bot_chat_id))];
+  if (!chats.length) console.warn('[notify] manager_chat_id не настроен и ни один сотрудник не открывал бота — уведомление не отправлено');
+  return chats;
+}
+
+async function sendToManagers(text: string, buttons?: InlineButton[][]): Promise<boolean> {
+  const targets = await managerTargets();
+  let ok = false;
+  for (const t of targets) {
+    const res = await sendMessage(t, text, buttons);
+    ok = ok || res.ok;
+  }
+  return ok;
+}
+
 /** Уведомление менеджерам о новой заявке — без ФИО, телефона и адреса */
 export async function notifyManagersNewOrder(o: { orderId: string; number: string; itemsCount: number; totalKopecks: number }) {
-  const chatId = await getSetting<number | string>('manager_chat_id');
-  if (!chatId) {
-    console.warn('[notify] manager_chat_id не настроен — уведомление не отправлено');
-    return false;
-  }
   const url = miniAppLink(`a_${o.orderId}`, `admin/orders/${o.orderId}`);
   const text = `<b>Новая заявка ${esc(o.number)}</b>\nТоваров: ${o.itemsCount}\nСумма по ценам заявки: ${esc(formatRub(o.totalKopecks))}\nОплата не производилась — нужна проверка наличия.`;
-  const res = await sendMessage(chatId, text, url ? [[{ text: 'Открыть заявку', url }]] : undefined);
-  return res.ok;
+  return sendToManagers(text, url ? [[{ text: 'Открыть заявку', url }]] : undefined);
 }
 
 export async function notifyManagers(text: string, orderId?: string) {
-  const chatId = await getSetting<number | string>('manager_chat_id');
-  if (!chatId) return false;
   const url = orderId ? miniAppLink(`a_${orderId}`, `admin/orders/${orderId}`) : null;
-  const res = await sendMessage(chatId, text, url ? [[{ text: 'Открыть заявку', url }]] : undefined);
-  return res.ok;
+  return sendToManagers(text, url ? [[{ text: 'Открыть заявку', url }]] : undefined);
 }
 
 const CUSTOMER_TEXT: Record<string, (n: string, extra: Record<string, string>) => string> = {

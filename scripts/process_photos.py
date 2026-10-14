@@ -1,6 +1,6 @@
 """Удаление фона у фото товаров (очередь product_images.processing_status = 'pending').
 
-Запускается GitHub Actions по расписанию. Нужны переменные окружения:
+Запускается GitHub Actions: сразу при появлении новых фото (бот/админка) и по расписанию как подстраховка. Нужны переменные окружения:
   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 Алгоритм: нейросеть ISNet выделяет все объекты переднего плана, SAM — вещь в центре кадра
 (соседние вещи на стойке отбрасываются); результат кладётся на фон магазина в формате 4:5.
@@ -138,40 +138,64 @@ def load_models():
     return new_session("isnet-general-use", sess_opts=opts()), new_session("sam", sess_opts=opts())
 
 
+def process_row(row: dict, isnet, sam) -> str:
+    src = row.get("original_storage_path") or row["storage_path"]
+    raw = http("GET", f"/storage/v1/object/product-images/{urllib.parse.quote(src)}")
+    im = ImageOps.exif_transpose(Image.open(io.BytesIO(raw))).convert("RGB")
+    if max(im.size) > 1600:
+        im.thumbnail((1600, 1600))
+    mask = segment(im, isnet, sam)
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    if mask is None:
+        rest("PATCH", f"product_images?id=eq.{row['id']}", {"processing_status": "skipped", "processed_at": now})
+        return "skipped"
+    data = compose(im, mask)
+    dest = f"{row['product_id']}/proc-{uuid.uuid4()}.jpg"
+    http("POST", f"/storage/v1/object/product-images/{urllib.parse.quote(dest)}", data,
+         {"Content-Type": "image/jpeg", "Cache-Control": "max-age=31536000", "x-upsert": "false"})
+    rest("PATCH", f"product_images?id=eq.{row['id']}", {
+        "storage_path": dest, "processed_storage_path": dest, "processing_status": "done",
+        "processing_error": None, "processed_at": now,
+    })
+    return "done"
+
+
 def main() -> int:
-    batch = claim_batch()
-    if not batch:
-        print("Очередь пуста")
-        return 0
-    print(f"В работе: {len(batch)} фото")
-    isnet, sam = load_models()
+    # После опустевшей очереди скрипт ещё немного ждёт новые фото: альбом приходит по одному сообщению,
+    # а владелец обычно пересылает несколько постов подряд — так они попадают в тот же запуск.
+    linger = int(os.environ.get("PHOTO_LINGER_SECONDS", "300"))
+    budget = int(os.environ.get("PHOTO_MAX_RUNTIME_SECONDS", str(25 * 60)))
+    poll = 15
+    started = time.monotonic()
+    idle_since = time.monotonic()
+    models = None
     ok = skipped = failed = 0
-    for row in batch:
-        src = row.get("original_storage_path") or row["storage_path"]
-        try:
-            raw = http("GET", f"/storage/v1/object/product-images/{urllib.parse.quote(src)}")
-            im = ImageOps.exif_transpose(Image.open(io.BytesIO(raw))).convert("RGB")
-            if max(im.size) > 1600:
-                im.thumbnail((1600, 1600))
-            mask = segment(im, isnet, sam)
-            if mask is None:
-                rest("PATCH", f"product_images?id=eq.{row['id']}", {"processing_status": "skipped", "processed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-                skipped += 1
-                continue
-            data = compose(im, mask)
-            dest = f"{row['product_id']}/proc-{uuid.uuid4()}.jpg"
-            http("POST", f"/storage/v1/object/product-images/{urllib.parse.quote(dest)}", data,
-                 {"Content-Type": "image/jpeg", "Cache-Control": "max-age=31536000", "x-upsert": "false"})
-            rest("PATCH", f"product_images?id=eq.{row['id']}", {
-                "storage_path": dest, "processed_storage_path": dest, "processing_status": "done",
-                "processing_error": None, "processed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            })
-            ok += 1
-        except Exception as e:  # noqa: BLE001 — фиксируем ошибку и идём дальше
-            failed += 1
-            rest("PATCH", f"product_images?id=eq.{row['id']}", {"processing_status": "failed", "processing_error": str(e)[:300]})
-            print(f"Ошибка {row['id']}: {e}", file=sys.stderr)
-    print(f"Готово: обработано {ok}, оставлен оригинал {skipped}, ошибок {failed}")
+    while time.monotonic() - started < budget:
+        batch = claim_batch()
+        if not batch:
+            if time.monotonic() - idle_since >= linger:
+                break
+            time.sleep(poll)
+            continue
+        print(f"В работе: {len(batch)} фото", flush=True)
+        if models is None:
+            models = load_models()
+        isnet, sam = models
+        for row in batch:
+            try:
+                if process_row(row, isnet, sam) == "done":
+                    ok += 1
+                else:
+                    skipped += 1
+            except Exception as e:  # noqa: BLE001 — фиксируем ошибку и идём дальше
+                failed += 1
+                rest("PATCH", f"product_images?id=eq.{row['id']}", {"processing_status": "failed", "processing_error": str(e)[:300]})
+                print(f"Ошибка {row['id']}: {e}", file=sys.stderr, flush=True)
+        idle_since = time.monotonic()
+    if ok + skipped + failed == 0:
+        print("Очередь пуста")
+    else:
+        print(f"Готово: обработано {ok}, оставлен оригинал {skipped}, ошибок {failed}")
     return 0
 
 
