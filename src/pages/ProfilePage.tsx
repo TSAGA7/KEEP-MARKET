@@ -6,8 +6,10 @@ import { openTelegramLink } from '@/lib/telegram';
 import { humanizeError } from '@shared/orders';
 import { PageHeader } from '@/components/layout';
 import { Button, Notice, Skeleton } from '@/components/ui';
-import { IconBox, IconChat, IconChevronRight, IconDoc, IconSend, IconShield } from '@/components/icons';
+import { IconBox, IconChat, IconChevronRight, IconSend, IconShield, IconStar } from '@/components/icons';
 import type { ReactNode } from 'react';
+
+const REVIEWS_CHANNEL_URL = 'https://t.me/km_otzv';
 
 export function TelegramRequired() {
   const s = useSession();
@@ -66,10 +68,7 @@ export default function ProfilePage() {
         <Row to="/orders" icon={<IconBox />}>Мои заказы</Row>
         {bot ? <Row onClick={() => openTelegramLink(`https://t.me/${bot}`)} icon={<IconChat />}>Поддержка и вопросы по заказу</Row> : null}
         {channel ? <Row onClick={() => openTelegramLink(channel)} icon={<IconSend />}>Канал KEEP MARKET</Row> : null}
-        <Row to="/legal/returns" icon={<IconDoc />}>Доставка и возврат</Row>
-        <Row to="/legal/offer" icon={<IconDoc />}>Оферта</Row>
-        <Row to="/legal/privacy" icon={<IconDoc />}>Персональные данные</Row>
-        <Row to="/legal/seller" icon={<IconDoc />}>О продавце</Row>
+        <Row onClick={() => openTelegramLink(REVIEWS_CHANNEL_URL)} icon={<IconStar />}>Отзывы</Row>
         {s.isStaff ? <Row to="/admin" icon={<IconShield />}>Панель управления</Row> : null}
       </ul>
       {hours ? <p className="px-4 pt-4 text-sm text-graphite">Поддержка: {hours}</p> : null}

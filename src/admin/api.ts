@@ -65,6 +65,12 @@ export async function listProducts(p: { q?: string; status?: string; review?: st
   return check(await query) as Array<Pick<AdminProduct, 'id' | 'slug' | 'title' | 'sku' | 'price_kopecks' | 'status' | 'compliance_status' | 'trademark_review_status' | 'is_demo' | 'category_id' | 'updated_at'>>;
 }
 
+/** Количество товаров по статусам (для обзора). Считает сервер, строки не загружаются. */
+export async function countProductsByStatus<S extends string>(statuses: S[]): Promise<Record<S, number>> {
+  const res = await Promise.all(statuses.map((st) => db().from('products').select('id', { count: 'exact', head: true }).eq('status', st)));
+  return Object.fromEntries(res.map((r, i) => { if (r.error) throw r.error; return [statuses[i], r.count ?? 0]; })) as Record<S, number>;
+}
+
 /** Удаление товара из архива навсегда: сервер удаляет запись (проверяет роль и статус «В архиве»),
  *  затем убираем файлы фото из хранилища. */
 export async function deleteArchivedProduct(id: string) {

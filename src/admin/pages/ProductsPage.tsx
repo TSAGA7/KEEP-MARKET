@@ -28,7 +28,7 @@ export default function ProductsPage() {
       await qc.invalidateQueries({ queryKey: ['admin', 'products'] });
     } catch (e) {
       const m = errText(e);
-      toast(m.includes('NOT_ARCHIVED') ? 'Удалить можно только товар из архива' : m.includes('FORBIDDEN') ? 'Нет прав на удаление' : m, 'error');
+      toast(m.includes('schema cache') ? 'Удаление ещё не включено на сервере: примените миграции базы (Actions → «Supabase: применить миграции»)' : m.includes('NOT_ARCHIVED') ? 'Удалить можно только товар из архива' : m.includes('FORBIDDEN') ? 'Нет прав на удаление' : m, 'error');
     } finally { setDeleting(null); }
   };
   const set = (k: string, v: string) => { const n = new URLSearchParams(sp); if (v) n.set(k, v); else n.delete(k); setSp(n, { replace: true }); };

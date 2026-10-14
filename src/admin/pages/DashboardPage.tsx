@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { rpc } from '../api';
+import { countProductsByStatus, rpc } from '../api';
 import { AdminPage } from '../ui';
 import { useSession } from '@/lib/session';
 import { Button, ErrorState, Notice, Price, Skeleton } from '@/components/ui';
@@ -25,6 +25,7 @@ function Stat({ label, value, to, tone }: { label: string; value: number | strin
 export default function DashboardPage() {
   const s = useSession();
   const q = useQuery({ queryKey: ['admin', 'dashboard'], queryFn: () => rpc<Dash>('staff_dashboard'), refetchInterval: 60_000 });
+  const counts = useQuery({ queryKey: ['admin', 'dashboard', 'product-counts'], queryFn: () => countProductsByStatus(['draft', 'archived']), refetchInterval: 60_000 });
   const d = q.data;
 
   return (
@@ -59,6 +60,8 @@ export default function DashboardPage() {
             <h2 className="mb-3 font-medium">Каталог</h2>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <Stat label="Опубликовано товаров" value={d.products_published} to="/admin/products?status=published" />
+              <Stat label="Черновики" value={counts.data?.draft ?? '—'} to="/admin/products?status=draft" />
+              <Stat label="В архиве" value={counts.data?.archived ?? '—'} to="/admin/products?status=archived" />
               <Stat label={`Остаток не подтверждён > ${d.stock_freshness_hours} ч`} value={d.variants_stale_stock} to="/admin/variants?stale=1" tone="warn" />
             </div>
           </section>

@@ -31,3 +31,6 @@ end $$;
 
 revoke execute on function public.admin_delete_archived_product(uuid) from public, anon;
 grant execute on function public.admin_delete_archived_product(uuid) to authenticated;
+
+-- PostgREST перечитывает схему, чтобы функция сразу стала доступна через API.
+notify pgrst, 'reload schema';
