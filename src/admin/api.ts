@@ -163,3 +163,31 @@ export function errText(e: unknown): string {
   const m = e instanceof Error ? e.message : String(e);
   return m;
 }
+
+/** Массовые действия с товарами. Выполняются по одному товару (с небольшим параллелизмом),
+ *  чтобы сервер проверил каждый отдельно (права, условия публикации) и мы могли сказать, что не получилось. */
+export interface BulkResult { ok: string[]; failed: Array<{ id: string; message: string }> }
+
+async function runBulk(ids: string[], fn: (id: string) => Promise<void>, onProgress?: (done: number) => void): Promise<BulkResult> {
+  const res: BulkResult = { ok: [], failed: [] };
+  let done = 0;
+  const queue = [...ids];
+  const worker = async () => {
+    for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+      try { await fn(id); res.ok.push(id); } catch (e) { res.failed.push({ id, message: errText(e) }); }
+      onProgress?.(++done);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(5, ids.length) }, worker));
+  return res;
+}
+
+export const bulkSetProductStatus = (ids: string[], status: AdminProduct['status'], onProgress?: (done: number) => void) =>
+  runBulk(ids, async (id) => { check(await db().from('products').update({ status }).eq('id', id)); }, onProgress);
+
+/** Удаление навсегда: товар сначала переводится в архив (сервер удаляет только из архива), затем удаляется. */
+export const bulkDeleteProducts = (ids: string[], currentStatus: Record<string, AdminProduct['status']>, onProgress?: (done: number) => void) =>
+  runBulk(ids, async (id) => {
+    if (currentStatus[id] !== 'archived') check(await db().from('products').update({ status: 'archived' }).eq('id', id));
+    await deleteArchivedProduct(id);
+  }, onProgress);
