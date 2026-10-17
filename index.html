@@ -8,10 +8,17 @@
     <meta name="description" content="KEEP MARKET — одежда, обувь, сумки и аксессуары независимых брендов" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <title>KEEP MARKET</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Скрипт Telegram лежит у нас: если telegram.org не открывается (мобильный интернет), магазин всё равно грузится -->
+    <script src="%BASE_URL%telegram-web-app.js"></script>
   </head>
   <body>
     <div id="root"></div>
+    <div id="boot-fallback" style="display:none;position:fixed;inset:0;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:24px;text-align:center;font:15px/1.4 -apple-system,system-ui,sans-serif;background:inherit;color:inherit">
+      <div style="font-weight:600;font-size:17px">Не удалось загрузить магазин</div>
+      <div style="opacity:.7">Проверьте подключение к интернету и попробуйте ещё раз.</div>
+      <button id="boot-reload" type="button" style="margin-top:8px;padding:10px 20px;border:0;border-radius:12px;background:#2481cc;color:#fff;font:inherit">Обновить</button>
+    </div>
+    <script src="%BASE_URL%boot-check.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
